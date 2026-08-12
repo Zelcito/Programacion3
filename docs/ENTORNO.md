@@ -29,9 +29,13 @@ Archivo de configuración: `<home>\conf\neo4j.conf`. Se arranca/para desde Neo4j
 | Herramienta | Versión |
 |---|---|
 | JDK | Temurin **25.0.4** (`C:\Program Files\Eclipse Adoptium\jdk-25.0.4.7-hotspot`) |
-| Maven | 3.9.11 vía wrapper (`./mvnw`, dists en `~/.m2/wrapper`) |
+| Maven | 3.9.11 — `mvn` en PATH (`%LOCALAPPDATA%\Programs\apache-maven-3.9.11`, `MAVEN_HOME` seteada) y wrapper `./mvnw` |
 | Spring Boot | 3.5.3 (`spring-boot-starter-data-neo4j`, `-web`, `-validation`) |
 | `java.version` del pom | 17 → se compila con `--release 17` sobre el JDK 25 |
+
+`mvn` y `./mvnw` son la misma versión 3.9.11 (el binario del sistema se copió del que ya había bajado
+el wrapper). Usá cualquiera; el wrapper es el que garantiza la versión a quien clone el repo.
+El PATH se actualizó a nivel usuario: las terminales ya abiertas necesitan reiniciarse.
 
 Nota: el driver Netty imprime warnings de `sun.misc.Unsafe` en JDK 25. Son ruido, no rompen nada.
 
