@@ -107,8 +107,16 @@ MATCH (n) DETACH DELETE n
 
 y reiniciar la app. Cuando el grupo cargue su propio dominio: `app.seed.enabled=false`.
 
-## 6. Pendiente de seguridad
+## 6. Git
 
-La password quedó commiteada en `application.properties` en el commit inicial `64e2a4e`.
-Sacarla del archivo (ya hecho) **no la borra del historial de git**. Si el repo se publica,
-hay que rotar la password del usuario `neo4j` y/o reescribir el historial. Decisión del grupo.
+Repo re-inicializado el 2026-08-11: el scaffold original traía la password commiteada en
+`application.properties` (commit `64e2a4e`) y borrar el historial era la única forma de sacarla.
+El repo actual arranca de cero, con las credenciales ya fuera del árbol (`.env` gitignoreado).
+
+- Rama por defecto: `main`. Sin remoto configurado todavía.
+- El remoto viejo era `https://github.com/Mancaceresuade/tpo-scaffold-2026.git` y **sigue
+  publicado con el commit que contiene la password**. Si ese repo es público o compartido,
+  cambiar la password del usuario `neo4j` (Neo4j Desktop → dbms → Reset password) y
+  actualizar `.env`.
+- Al crear el repo nuevo: `git remote add origin <url> && git push -u origin main`.
+- `TPO 2026 - Consignas y rubrica.pdf` está versionado (estaba en un stash del repo viejo).
