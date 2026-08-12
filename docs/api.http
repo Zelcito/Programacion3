@@ -1,0 +1,28 @@
+### Verificar conexión y datos
+GET http://localhost:8080/api/grafo/resumen
+
+### Recorridos
+GET http://localhost:8080/api/grafo/dfs?origen=A
+GET http://localhost:8080/api/grafo/bfs?origen=A
+
+### Caminos mínimos    (esperado: A->C = 7, A->H = 20)
+GET http://localhost:8080/api/grafo/dijkstra?origen=A&destino=C
+GET http://localhost:8080/api/grafo/dijkstra?origen=A&destino=H
+GET http://localhost:8080/api/grafo/floyd
+GET http://localhost:8080/api/grafo/ucs?origen=A&destino=H
+
+### Arbol de recubrimiento minimo    (esperado: 7 aristas, costo total 27)
+GET http://localhost:8080/api/grafo/prim?origen=A
+GET http://localhost:8080/api/grafo/kruskal
+
+### Ordenamiento
+GET http://localhost:8080/api/seleccion/quicksort?criterio=ratio
+GET http://localhost:8080/api/seleccion/mergesort?criterio=peso
+
+### Seleccion    (comparar: greedy no deberia igualar a dinamica)
+GET http://localhost:8080/api/seleccion/greedy?capacidad=10
+GET http://localhost:8080/api/seleccion/dinamica?capacidad=10
+
+### Backtracking y Branch and Bound
+GET http://localhost:8080/api/grafo/rutas?origen=A&destino=H&costoMaximo=30&saltosMaximos=6
+GET http://localhost:8080/api/seleccion/repartir?contenedores=3
