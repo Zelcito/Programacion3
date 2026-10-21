@@ -7,11 +7,12 @@ import uade.prog3.tpo.model.Item;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests de QuickSort. No tocan Neo4j: usan los mismos items de la carga inicial.
+ * Tests de QuickSort y MergeSort. No tocan Neo4j: usan los mismos items de la carga inicial.
  */
 class OrdenamientoTest {
 
@@ -71,5 +72,60 @@ class OrdenamientoTest {
                 new Item("e", "e", 3, 0, null));
         List<Double> pesos = ordenamiento.quickSort(entrada, POR_PESO).stream().map(Item::getPeso).toList();
         assertEquals(List.of(1.0, 2.0, 2.0, 3.0, 3.0), pesos);
+    }
+
+    @Test
+    void mergeSortOrdenaPorRatio() {
+        List<Item> ordenados = ordenamiento.mergeSort(itemsDeEjemplo(), POR_RATIO);
+        assertEquals(List.of("I1", "I3", "I5", "I2", "I4"), ids(ordenados));
+    }
+
+    @Test
+    void mergeSortOrdenaPorPeso() {
+        List<Item> ordenados = ordenamiento.mergeSort(itemsDeEjemplo(), POR_PESO);
+        assertEquals(List.of("I4", "I2", "I1", "I3", "I5"), ids(ordenados));
+    }
+
+    @Test
+    void mergeSortNoModificaLaEntrada() {
+        List<Item> entrada = new ArrayList<>(itemsDeEjemplo());
+        ordenamiento.mergeSort(entrada, POR_RATIO);
+        assertEquals(List.of("I1", "I2", "I3", "I4", "I5"), ids(entrada));
+    }
+
+    @Test
+    void mergeSortCasosBorde() {
+        assertTrue(ordenamiento.mergeSort(List.of(), POR_RATIO).isEmpty());
+
+        Item unico = new Item("X", "Unico", 1, 1, null);
+        assertEquals(List.of(unico), ordenamiento.mergeSort(List.of(unico), POR_RATIO));
+    }
+
+    @Test
+    void mergeSortEsEstable() {
+        // b, c y d pesan lo mismo: tienen que salir en el orden en que entraron.
+        List<Item> entrada = List.of(
+                new Item("d", "d", 2, 0, null),
+                new Item("a", "a", 9, 0, null),
+                new Item("b", "b", 2, 0, null),
+                new Item("e", "e", 1, 0, null),
+                new Item("c", "c", 2, 0, null));
+        List<Item> ordenados = ordenamiento.mergeSort(entrada, POR_PESO);
+        assertEquals(List.of("e", "d", "b", "c", "a"), ids(ordenados));
+    }
+
+    @Test
+    void quickSortYMergeSortCoincidenEnUnaListaGrande() {
+        Random azar = new Random(42);
+        List<Item> entrada = new ArrayList<>();
+        for (int k = 0; k < 500; k++) {
+            entrada.add(new Item("i" + k, "i" + k, azar.nextInt(100), azar.nextInt(100), null));
+        }
+        List<Double> porQuick = ordenamiento.quickSort(entrada, POR_PESO).stream().map(Item::getPeso).toList();
+        List<Double> porMerge = ordenamiento.mergeSort(entrada, POR_PESO).stream().map(Item::getPeso).toList();
+        assertEquals(porMerge, porQuick);
+        for (int k = 1; k < porMerge.size(); k++) {
+            assertTrue(porMerge.get(k - 1) <= porMerge.get(k), "desordenado en la posicion " + k);
+        }
     }
 }

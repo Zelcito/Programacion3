@@ -90,8 +90,45 @@ public class Ordenamiento {
      *
      * Para el coloquio: escribir la recurrencia T(n) = 2T(n/2) + O(n)
      * y resolverla con la regla practica (a, b, k).
+     *
+     * Recurrencia: T(n) = 2T(n/2) + O(n), con a = 2, b = 2, k = 1.
+     * Como a = b^k, T(n) = O(n^k log n) = O(n log n), en todos los casos:
+     * la division no depende de los datos, siempre parte por la mitad.
+     *
+     * Estabilidad: en la mezcla, ante un empate se toma primero el elemento
+     * de la mitad izquierda (compare <= 0), que venia antes en la entrada.
+     *
+     * Espacio extra: O(n) por las listas auxiliares de la mezcla.
      */
     public List<Item> mergeSort(List<Item> items, Comparator<Item> criterio) {
-        throw new PendienteDeImplementar("MergeSort");
+        if (items.size() <= 1) {
+            return new ArrayList<>(items); // caso base, y tambien copia la entrada
+        }
+        int medio = items.size() / 2;
+        List<Item> izquierda = mergeSort(items.subList(0, medio), criterio);
+        List<Item> derecha = mergeSort(items.subList(medio, items.size()), criterio);
+        return mezclar(izquierda, derecha, criterio);
+    }
+
+    /** Une dos listas ya ordenadas en una nueva lista ordenada. O(n). */
+    private List<Item> mezclar(List<Item> izquierda, List<Item> derecha, Comparator<Item> criterio) {
+        List<Item> resultado = new ArrayList<>(izquierda.size() + derecha.size());
+        int i = 0;
+        int j = 0;
+        while (i < izquierda.size() && j < derecha.size()) {
+            if (criterio.compare(izquierda.get(i), derecha.get(j)) <= 0) {
+                resultado.add(izquierda.get(i++));
+            } else {
+                resultado.add(derecha.get(j++));
+            }
+        }
+        // Una de las dos se termino: lo que queda de la otra ya esta ordenado.
+        while (i < izquierda.size()) {
+            resultado.add(izquierda.get(i++));
+        }
+        while (j < derecha.size()) {
+            resultado.add(derecha.get(j++));
+        }
+        return resultado;
     }
 }
