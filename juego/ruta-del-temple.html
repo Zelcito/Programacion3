@@ -1,0 +1,2199 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>La Ruta del Temple</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Pirata+One&family=VT323&display=swap" rel="stylesheet">
+<style>
+/* Lienzo lógico 640x360 dibujado en Full HD (1920x1080), centrado y escalado a la ventana manteniendo 16:9. */
+:root{ color-scheme:dark; --bg:#0B0705; --ink:#EBDDB8; }
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink)}
+.wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+canvas{display:block;image-rendering:pixelated;outline:none;touch-action:manipulation}
+canvas:focus-visible{box-shadow:0 0 0 2px #E0B44C}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="cv" width="1920" height="1080" tabindex="0" aria-label="Juego La Ruta del Temple. Se juega con mouse o teclado."></canvas>
+</div>
+<script>
+(function(){
+"use strict";
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const VW = 640, VH = 360, DPR = 3;   // 640x360 lógicos -> 1920x1080 reales
+ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+ctx.imageSmoothingEnabled = false;
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function R(x,y,w,h,c){ ctx.fillStyle = c; ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
+const ri = (a,b) => a + Math.floor(Math.random()*(b-a+1));
+const pick = a => a[Math.floor(Math.random()*a.length)];
+function shuffle(a){ for(let i = a.length-1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); [a[i],a[j]] = [a[j],a[i]]; } return a; }
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const sum = (a, f) => a.reduce((s,x) => s + f(x), 0);
+const ease = p => p < .5 ? 2*p*p : 1 - Math.pow(-2*p+2, 2)/2;
+
+/* ============ Paleta ============ */
+const C = {
+  ink:"#3A2614", ink2:"#6A4A2A", parch:"#EBDDB8", parchL:"#F4E9CC", parchD:"#D9C49A", muted:"#A8956E", dim:"#6E5C42",
+  gold:"#E0B44C", goldD:"#8A6A24", red:"#C0352B", redD:"#6E1A14", bg:"#140D08", wood:"#2A1C12", woodT:"#3A2818",
+  dij:"#1F7FD0", bfs:"#2E8A1E", dfs:"#7A3FC0", gre:"#D0681A", bt:"#C02F6F", flo:"#1F6FB0", pri:"#B07A10", kru:"#8A6A3A",
+  sea:"#2F6A9A", mont:"#7A5A3A", blue:"#6AB0E0", green:"#8AC05A"
+};
+
+/* ============ Texto: fuentes reales a doble resolución ============ */
+const FT = '"Pirata One", Georgia, serif', FU = '"VT323", "Courier New", monospace';
+function setFont(sz, f){ ctx.font = `${sz}px ${f || FU}`; }
+function mw(s, sz, f){ setFont(sz, f); return ctx.measureText(String(s)).width; }
+// o: {f:fuente, al:"left|center|right", bl:"top|middle", sh:color de sombra}
+function tx(s, x, y, col, sz, o){
+  o = o || {}; s = String(s); setFont(sz || 12, o.f);
+  ctx.textAlign = o.al || "left"; ctx.textBaseline = o.bl || "top";
+  if(o.sh){ ctx.fillStyle = o.sh; ctx.fillText(s, x + .75, y + .75); }
+  ctx.fillStyle = col; ctx.fillText(s, x, y);
+}
+function wrapT(s, maxW, sz, f){
+  const words = String(s).split(" "), lines = []; let cur = ""; setFont(sz, f);
+  words.forEach(w => { const t = cur ? cur + " " + w : w; if(ctx.measureText(t).width > maxW && cur){ lines.push(cur); cur = w; } else cur = t; });
+  if(cur) lines.push(cur); return lines;
+}
+// achica la fuente hasta que el texto entre en maxW
+function fitSize(s, maxW, sz, f){ while(sz > 9 && mw(s, sz, f) > maxW) sz -= .5; return sz; }
+function txFit(s, x, y, maxW, col, sz, o){ tx(s, x, y, col, fitSize(s, maxW, sz, o && o.f), o); }
+// devuelve la altura usada
+function para(s, x, y, maxW, col, sz, lh, o){ sz = sz || 12; lh = lh || Math.round(sz*.95); const L = wrapT(s, maxW, sz, o && o.f);
+  L.forEach((l,i) => tx(l, x, y + i*lh, col, sz, o)); return L.length*lh; }
+
+/* ============ Sprites pixel art ============ */
+function makeSprite(rows, pal){
+  const h = rows.length, w = rows[0].length, c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d");
+  rows.forEach((r,y) => { for(let x = 0; x < w; x++){ const p = pal[r[x]]; if(p){ g.fillStyle = p; g.fillRect(x, y, 1, 1); } } });
+  return c;
+}
+function spr(c, x, y, sc){ sc = sc || 1; ctx.drawImage(c, Math.round(x), Math.round(y), c.width*sc, c.height*sc); }
+function sprC(c, cx, cy, sc){ sc = sc || 1; spr(c, cx - c.width*sc/2, cy - c.height*sc/2, sc); }
+const K = "#3A2614";
+const SP = {
+  town: makeSprite(["..k.k.k..","..kkkkk..","..kwwwk..","..kwkwk..","kkkwwwkkk","kwwwwwwwk","kwwkkkwwk","kwwkwkwwk","kkkkkkkkk"], {k:K, w:"#CDB487"}),
+  goal: makeSprite(["....k....","...kgk...","..kgggk..",".kgggggk.",".kgggggk.","kkkkkkkkk","kwwkwkwwk","kwwkwkwwk","kkkkkkkkk"], {k:K, g:"#E0B44C", w:"#CDB487"}),
+  shield: makeSprite(["kkkkkkk","kwwrwwk","krrrrrk","kwwrwwk","kwwrwwk",".kwrwk.","..kwk..","...k..."], {k:K, w:"#F4E9CC", r:"#C0352B"}),
+  tent: makeSprite(["....k....","...rwr...","..rwrwr..",".rwrwrwr.","rwrwrwrwr","kkkkkkkkk"], {k:K, r:"#C0352B", w:"#F4E9CC"}),
+  flag: makeSprite(["kbbbb","kbbbb","kbb..","k....","k....","k...."], {k:K, b:"#2D5FA8"}),
+  posta: makeSprite([".kkk.","k...k","k...k","k...k","kk.kk"], {k:"#B07A10"}),
+  hourglass: makeSprite(["kkkkkkkkk",".kyyyyyk.","..kyyyk..","...kyk...","....k....","...k.k...","..k.y.k..",".kyyyyyk.","kkkkkkkkk"], {k:K, y:"#E0B44C"}),
+  letter: makeSprite(["kkkkkkkkkkk","kwwwwwwwwwk","kwkwwwwwkwk","kwwkwwwkwwk","kwwwkrkwwwk","kwwwrrrwwwk","kwwwwrwwwwk","kkkkkkkkkkk"], {k:K, w:"#F4E9CC", r:"#C0352B"}),
+  bag: makeSprite(["...kkkkk...","..k.....k..",".kkkkkkkkk.","kbbbbbbbbbk","kbBBBBBBBbk","kbBBgggBBbk","kbBBgGgBBbk","kbBBgggBBbk","kbBBBBBBBbk","kbbbbbbbbbk",".kkkkkkkkk."],
+    {k:"#1E120A", b:"#6B4226", B:"#9A6A3A", g:"#B07A10", G:"#E0B44C"}),
+  backpack: makeSprite(["..kkkkkkk..",".kbbbbbbbk.","kbBBBBBBBbk","kbBkkkkkBbk","kbBkbbbkBbk","kbBkkkkkBbk","kbBBBBBBBbk","kbBBBBBBBbk","kbBBBBBBBbk",".kkkkkkkkk."],
+    {k:"#1E120A", b:"#5A3A1E", B:"#8A5A34"}),
+  sun: makeSprite(["....y....",".y..y..y.","..yyyyy..","..yYYYy..","yyyYYYyyy","..yYYYy..","..yyyyy..",".y..y..y.","....y...."], {y:"#E0A030", Y:"#FFE08A"}),
+  flower: makeSprite(["...ppp...","..pPPPp..",".ppPyPpp.","..pPPPp..","...ppp...","....g....","..gg.....","....g.gg.","....g...."], {p:"#B04A7A", P:"#E88AB8", y:"#F2CF5A", g:"#4E7A2A"}),
+  leaf: makeSprite(["......ooo","....ooOOo","...oOOOo.","..oOOOOo.",".oOOOOo..",".oOOOo...","..ooo....",".k.......","k........"], {o:"#9A4A10", O:"#E07A2A", k:"#5A3A1E"}),
+  snow: makeSprite(["....w....",".w..w..w.","..w.w.w..","...www...","wwwwwwwww","...www...","..w.w.w..",".w..w..w.","....w...."], {w:"#7AA8D0"}),
+  pan: makeSprite(["..........","...bbbb...",".bbBBBBbb.","bBBlBBlBBb","bBBBBBBBBb","bBBBBBBBBb",".bbbbbbbb.",".........."], {b:"#7A4A1E", B:"#C98A3E", l:"#F0C47A"}),
+  carne: makeSprite(["...rrrr...","..rRRRRr..",".rRRwRRRr.",".rRRRRRRr.","..rRRRRr..","...rrrw...",".......ww.","........w."], {r:"#6E1A14", R:"#B8433A", w:"#F4E9CC"}),
+  queso: makeSprite(["..........","......yy..","....yyYY..","..yyYYYYy.","yyYYoYYYy.","yYYYYYoYy.","yyyyyyyyy.",".........."], {y:"#9A7A1E", Y:"#F2CF5A", o:"#C9A23A"}),
+  higos: makeSprite(["....g.....","...pp..g..","..pPPp.pp.","..pPPppPPp","...pp.pPPp","..pp...pp.",".pPPp.....","..pp......"], {p:"#4A2238", P:"#8A4A6E", g:"#4E7A2A"}),
+  odre: makeSprite(["...kk.....","...bb.....","..bBBb....",".bBBBBb...","bBBlBBBb..","bBBBBBBBb.",".bBBBBBBb.","..bbbbbb.."], {k:K, b:"#5A3A1E", B:"#9A6A3A", l:"#C99A6A"}),
+  reliquia: makeSprite(["....k.....","..kkgkk...",".kgggggk..",".kgrgrgk..",".kgggggk..",".kgrgrgk..",".kkkkkkk..",".........."], {k:K, g:"#E0B44C", r:"#C0352B"}),
+  libro: makeSprite(["..........",".kkkkkkkk.",".krrrrrrk.",".krrgrrrk.",".krgggrrk.",".krrgrrrk.",".kwwwwwwk.",".kkkkkkkk."], {k:K, r:"#7A2018", g:"#E0B44C", w:"#F4E9CC"}),
+  cruz: makeSprite(["....ss....","....SS....","..ssSSss..","..SSSSSS..","....SS....","....SS....","....SS....","....ss...."], {s:"#8A8E99", S:"#DDE2EA"}),
+  espada: makeSprite(["........sS",".......sS.","......sS..",".....sS...","..g.sS....","...gg.....","..b.g.....",".b........"], {s:"#8A8E99", S:"#E6EAF0", g:"#E0B44C", b:"#5A3A1E"}),
+  escudo: makeSprite([".bbbbbbbb.",".bWWRRWWb.",".bWWRRWWb.",".bRRRRRRb.",".bWWRRWWb.","..bWRRWb..","...bRRb...","....bb...."], {b:"#5A3A1E", W:"#F4E9CC", R:"#C0352B"}),
+  hierbas: makeSprite(["...g.g....","..gGgGg...","...gGg....","....g.....","..wwwwww..",".wWWWWWWw.",".wWWWWWWw.","..wwwwww.."], {g:"#2E5A1E", G:"#6EA03A", w:"#A8956E", W:"#F4E9CC"}),
+  pergamino: makeSprite([".kkkkkkkk.","kPPPPPPPPk",".kpppppk..",".kp.k.pk..",".kpk.kpk..",".kp.k.pk..","kPPPPPPPPk",".kkkkkkkk."], {k:K, P:"#C9A86A", p:"#F4E9CC"}),
+  knight: makeSprite([
+    "....k...............","...kWWW.............","...kBBB....hhh......","...kWW....hhhhh.....","...k......hvvvh.....","...k......hhhhh.....",
+    "...k.....WWWWWWW....","...k....WWWWRWWWW...","...k...aWWRRRRRWWa..","...k...aWWWWRWWWWa..","...k..gawWWWRWWWwag.","...kgg.awWWWRWWWwa..",
+    "...k..nnnWWWWWWWnnn.","...k.nnnnnnmmmnnnnnn","...k.nnnnnmMMMmnnnnn","...k.nnN..MMMMM..Nnn","...k.nN...MeMeM...Nn","...k......MMMMM.....",
+    "...k......MMMMM.....","...k.......MMM......","...k.....nn...nn....","...k.....nN...Nn....","...k.....nn...nn....","...k.....dd...dd...."],
+    {k:"#5A3A1E", W:"#F4F0E4", w:"#C8C2B2", B:"#1A1410", h:"#A8AEB8", v:"#2A2E36", R:"#C0352B", a:"#8A8E99", g:"#5A5E68", n:"#6B4226", N:"#4A2A14", m:"#2A160A", M:"#8A5A34", e:"#1A0E06", d:"#1E120A"}),
+  bandit: makeSprite([
+    "....ggg.....","...gGGGg....","..gGgggGg...","..gGfffGg...","..ggfefgg...","...gfffg....","..gggggggg..",".gGgggggGgg.",
+    ".gGgggggGg.s","gGggbbbggGgs","g.gggggggggS","f.gggggggg..","..gggggggg..","..ggg..ggg..","..gg....gg..","..gg....gg..","..dd....dd.."],
+    {g:"#4A4030", G:"#5E5440", f:"#C08A60", e:"#1A1410", b:"#6A4A2A", s:"#D8DCE4", S:"#8A8E99", d:"#1E120A"}),
+  cypress: makeSprite([
+    "...g...","..gGg..","..lGg..",".glGgg.",".gGlGg.",".lgGGg.","glGgGgg","gGlGGgg","glGGgGg","gGlgGGg","glGGGgg","gGlGgGg",
+    "glGgGGg","gGlGGgg","glGGgGg","gGlgGGg",".gGlGg.",".glGgg.",".gGGgg.","..ggg..","...t...","...t..."],
+    {g:"#1C361C", G:"#2E5A2A", l:"#4A7A3A", t:"#4A3420"}),
+  olive: makeSprite([
+    "....oOoOo.......","..oOOlOOoOo.....",".oOlOOoOOlOoo...","oOOOoOlOOOOOOo..","oOlOOOOoOlOOOOo.",".oOOoOOOOOoOOo..",
+    "..ooOOoOOoOoo...","....oo.tt.oo....",".......tt.......","......tt........","......tt........",".....tTt........","....tt..t......."],
+    {o:"#56663A", O:"#7E8E50", l:"#A6B470", t:"#5A4228", T:"#3E2C18"}),
+  stone: makeSprite(["...sss...",".ssSSSs..","sSSlSSSs.","sSSSSSSSs","ssSSSSSss",".sssssss."], {s:"#5E5444", S:"#8E8270", l:"#B4A890"}),
+  shrine: makeSprite(["...s...","..sSs..","sssSsss","sSSSSSs","sssSsss","...S...","...S...","...S...","..sSs..",".sSSSs.","sSSSSSs","sssssss"],
+    {s:"#6E6250", S:"#A89A80"}),
+  tuft: makeSprite(["g...g",".gGg.","gGlGg"], {g:"#4E6A2A", G:"#6E8A3A", l:"#9AB04E"}),
+  flowers: makeSprite([".r.y.","rgyg.",".gGg."], {r:"#C0352B", y:"#E0B44C", g:"#4E6A2A", G:"#6E8A3A"}),
+  galley: makeSprite([
+    "..................m","..........WWWWWWWWmWWWWWWWW","..........WWWWWWWWRWWWWWWWW","..........WWWWWWWWRWWWWWWWW","..........WWWWWRRRRRRRWWWWW",
+    "..........WWWWWWWWRWWWWWWWW","..........wWWWWWWWRWWWWWWWw","...........wWWWWWWRWWWWWWw","............wwWWWWmWWWWww","..................m",
+    "..f...............m...............f",".hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh","..hHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHh","...hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
+    "....o..o..o..o..o..o..o..o..o..o","...o..o..o..o..o..o..o..o..o..o"],
+    {W:"#F2EEE2", w:"#C8C2B2", R:"#C0352B", m:"#4A2E16", h:"#5A3A1E", H:"#8A5A30", o:"#3A2410", f:"#E0B44C"}),
+  pirate: makeSprite([
+    "..................m","..........WWWWWWWWmWWWWWWWW","..........WWWWWWWWWWWWWWWWW","..........WWWWWWwwwWWWWWWWW","..........WWWWWwwwwwWWWWWWW",
+    "..........WWWWWWwwwWWWWWWWW","..........WWWWWWWWWWWWWWWWW","...........WWWWWWWWWWWWWWW","............WWWWWWmWWWWWW","..................m",
+    "..f...............m...............f",".hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh","..hHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHh","...hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh",
+    "....o..o..o..o..o..o..o..o..o..o","...o..o..o..o..o..o..o..o..o..o"],
+    {W:"#26262C", w:"#D8D4C8", m:"#2A1A0E", h:"#2A1E14", H:"#4A3420", o:"#1A120A", f:"#C0352B"}),
+  pilgrim: makeSprite(["...hhhh...","..hhhhhh..","....ff....","....ff..s.","...rrrr.s.","..rrrrrrs.","..rrRrrrs.","..rrrrrrs.","..rrrrrrs.",
+    "..rrrrrr.s","..rrrrrr.s","..rrrrrr..","..rrrrrr..","..rRrrrr..","..rr..rr..","..dd..dd.."],
+    {h:"#5A3A1E", f:"#C08A60", r:"#8A6A48", R:"#F4E9CC", s:"#5A3A1E", d:"#2A1A0E"}),
+  merchant: makeSprite(["...hhhh...","..hhhhhh..","....ff....","....ff....","...rrrr...","..rrrrrr..","..rrRrrr..","..rrrrrr..","..rrrrrr..",
+    "..rrrrrr..","..rrrrrr..","..rrrrrr..","..rrrrrr..","..rRrrrr..","..rr..rr..","..dd..dd.."],
+    {h:"#8A2A1E", f:"#C08A60", r:"#3A6A3A", R:"#E0B44C", d:"#2A1A0E"}),
+  monk: makeSprite(["...hhhh...","..hffffh..","..hfeefh..","..hffffh..","..hhhhhh..",".hhhhhhhh.",".hhhhhhhh.",".hhhhhhhh.",".hhwwwwhh.",
+    ".hhhhhhhh.",".hhhhwhhh.",".hhhhwhhh.",".hhhhhhhh.",".hhhhhhhh.","..hh..hh..","..dd..dd.."],
+    {h:"#5A3E26", f:"#C08A60", e:"#2A1A0E", w:"#C9B07A", d:"#2A1A0E"}),
+  hermit: makeSprite(["...hhhh...","..hffffh..","..hfeefh..","..hbbbbh..","..hbbbbh..",".hhhbbhhh.",".hhhhhhhh.","shhhhhhhh.","shhwwwwhh.",
+    "shhhhhhhh.","shhhhwhhh.","shhhhwhhh.","shhhhhhhh.","shhhhhhhh.","s.hh..hh..","s.dd..dd.."],
+    {h:"#7A7468", f:"#C08A60", e:"#2A1A0E", b:"#E8E4DC", w:"#A89A80", s:"#5A3A1E", d:"#2A1A0E"}),
+  leper: makeSprite(["...hhhh...","..hhhhhh..","..hheehh..","..hhhhhh..",".hhhhhhhh.",".hhhhhhhhy",".hhhhhhhyy",".hhhhhhhh.",".hhhhhhhh.",
+    ".hhhhhhhh.","..hhhhhh..","..hhhhhh..","..hhhhhh..","..hh..hh..","..ff..ff.."],
+    {h:"#9A968A", e:"#2A2A2A", y:"#C9A23A", f:"#B08A6A"}),
+  abbey: makeSprite([
+    ".............k..................","............kkk.................",".............k..................","............sss.................",
+    "...........sSSSs................","...........sSwSs................","...........sSSSs................","..........ssSSSss...............",
+    "..........sSSSSSs.......rrrrrr..","..........sSSSSSs......rrrrrrrr.",".........rrrrrrrrrr...rrrrrrrrrr","........rrrrrrrrrrrr..sSSSSSSSSs",
+    ".......rrrrrrrrrrrrrr.sSSwSSwSSs","......sSSSSSSSSSSSSSSssSSSSSSSSs","......sSSwSSSwSSSwSSSssSSSSSSSSs","......sSSwSSSwSSSwSSSssSSwSSwSSs",
+    "......sSSSSSSSSSSSSSSssSSSSSSSSs","......sSSSSSSddSSSSSSssSSSSSSSSs","......sSSSSSdddddSSSSssSSSSSSSSs","......sSSSSSdddddSSSSssSSSSSSSSs",
+    "......ssssssssssssssssssssssssss"],
+    {k:"#3A2614", s:"#7A6E5E", S:"#B8AC94", w:"#3A2A1A", r:"#8A3A24", d:"#4A2E16"}),
+  stall: makeSprite(["rwrwrwrwrwrwrwrwrwrw","rwrwrwrwrwrwrwrwrwrw",".rwrwrwrwrwrwrwrwrw.",".p................p.",".p................p.",
+    ".p..yy.oo..gg.yy..p.",".pttttttttttttttttp.",".pttttttttttttttttp.",".p.t............t.p.",".p.t............t.p.",".p.t............t.p."],
+    {r:"#C0352B", w:"#F4E9CC", p:"#5A3A1E", t:"#8A5A30", y:"#E0B44C", o:"#D0681A", g:"#6E8A3A"}),
+  wolf: makeSprite(["..........gg....",".........gGGg...","........gGeGGg..","gg.....gGGGGGGn.",".ggggggGGGGGg...","..gGGGGGGGGg....",
+    "..gGGGGGGGGg....","..gg.gg..gg.gg..","..g..g....g..g.."],
+    {g:"#4A4A50", G:"#7A7A80", e:"#E0B44C", n:"#1A1A1A"}),
+  wreck: makeSprite(["..........m...................","...........m..................","............m.....w...........","............m....ww...........",
+    ".............m..www...........","..hhhhhhhhhhhhhhhhhhhhh.......","...hHHHHHHHHHHHHHHHHHHHh......","....hHHHHHHHHHHHHHHHHHHh......",".....hhhhhhhhhhhhhhhhhhh......"],
+    {m:"#4A2E16", w:"#D8D0BC", h:"#4A2E16", H:"#7A4E2A"}),
+  horseIcon: makeSprite(["...k.k...","..kbkbk..",".kbbbbbk.","kbbebbbk.","kbbbbbbbk",".kkbbbbbk","...kbbbbk","..kbbbbk.","..kkkkk.."],
+    {k:"#2A160A", b:"#8A5A34", e:"#1A0E06"}),
+  town2: makeSprite(["......k........",".....kRk.......","......k........","..k.k.k...k.k..","..kkkkk...kkk..","..kwwsk...kwk..",
+    "..kwkwk.kkkwk..","..kwwskkwwkwk..","kkkwwwwwwwwwkkk","kwwwwkwwwkwwwsk","kwwwwwwwwwwwwsk","kwkkwwwkkwwwksk","kwkkwwkddkwwksk",
+    "kwwwwwkddkwwwsk","kkkkkkkkkkkkkkk"],
+    {k:K, w:"#D8C292", s:"#A88E62", R:"#C0352B", d:"#5A3A1E"}),
+  capital: makeSprite(["..R.........R....",".kk.........kk...","..k....k....k....",".kkk..kRk..kkk...",".kwk...k...kwk...","kkwkk.kkk.kkwkk..",
+    "kwwsk.kwk.kwwsk..","kwwskkkwkkkwwsk..","kwwwwwwwwwwwwsk..","kkkkkkkkkkkkkkkk.","kwwkwwwkkkwwwkwsk","kwwwwwwwwwwwwwwsk",
+    "kwkkwwkdddkwwkksk","kwkkwwkdddkwwkksk","kwwwwwkdddkwwwwsk","kkkkkkkkkkkkkkkkk"],
+    {k:K, w:"#D8C292", s:"#A88E62", R:"#C0352B", d:"#5A3A1E"}),
+  port: makeSprite(["......k........",".....kRk.......","......k........","..k.k.k........","..kkkkk...k.k..","..kwwsk...kkk..",
+    "..kwkwk.kkkwk..","kkkwwskkwwkwkk.","kwwwwwwwwwwwsk.","kwkkwwwkkwwwsk.","kwkkwwkddkwwsk.","kkkkkkkkkkkkkk.",
+    "bbbbbbbbbb.m...",".bBbbBbbb.hhhh.","bbbbbbbbbbbhh.."],
+    {k:K, w:"#D8C292", s:"#A88E62", R:"#C0352B", d:"#5A3A1E", b:"#5A86A8", B:"#A8C8DC", m:"#5A3A1E", h:"#7A4E2A"}),
+  goal2: makeSprite([".......k.......","......kgk......",".....kgggk.....","....kgggggk....","...kgggGgggk...","...kggGGGggk...",
+    "..kkkkkkkkkkk..","..kwwkwkwkwwk..","kkkwwwwwwwwwkkk","kwwwkwwwwwkwwsk","kwwwwwwwwwwwwsk","kwkkwwwddwwkksk","kwkkwwwddwwkksk","kkkkkkkkkkkkkkk"],
+    {k:K, g:"#E0B44C", G:"#FFE08A", w:"#D8C292", s:"#A88E62", d:"#5A3A1E"}),
+  menu: makeSprite(["yyyyyyyyy",".........","yyyyyyyyy",".........","yyyyyyyyy"], {y:"#E0B44C"})
+};
+// variantes por cambio de paleta
+const KNIGHT_ROWS = [
+  "....k...............","...kWWW.............","...kBBB....hhh......","...kWW....hhhhh.....","...k......hvvvh.....","...k......hhhhh.....",
+  "...k.....WWWWWWW....","...k....WWWWRWWWW...","...k...aWWRRRRRWWa..","...k...aWWWWRWWWWa..","...k..gawWWWRWWWwag.","...kgg.awWWWRWWWwa..",
+  "...k..nnnWWWWWWWnnn.","...k.nnnnnnmmmnnnnnn","...k.nnnnnmMMMmnnnnn","...k.nnN..MMMMM..Nnn","...k.nN...MeMeM...Nn","...k......MMMMM.....",
+  "...k......MMMMM.....","...k.......MMM......","...k.....nn...nn....","...k.....nN...Nn....","...k.....nn...nn....","...k.....dd...dd...."];
+SP.messenger = makeSprite(KNIGHT_ROWS, {k:"#5A3A1E", W:"#F2D24A", w:"#C8A830", B:"#F4F0E4", h:"#A8AEB8", v:"#2A2E36", R:"#F4F0E4", a:"#8A8E99", g:"#5A5E68", n:"#E8E2D6", N:"#B8B2A6", m:"#8A847A", M:"#F4F0E8", e:"#1A0E06", d:"#4A4440"});
+SP.spy = makeSprite(["...ggg...","..gfffg..","..gefeg..","..ggggg..",".gggggggs","g.ggggg.s","g.ggggg.s","..ggggg..","..gg.gg..","..gg.gg..","..dd.dd.."],
+  {g:"#2A2238", f:"#B08060", e:"#1A1410", s:"#D8DCE4", d:"#120E14"});
+const GAUCHO_ROWS = [
+  "..........hhhh..........",".........hhhhhh.........","..........ffff..........","..........ffff..........",".........pppppp.........",
+  "........ppppppppa.......","........pPPPPPPp.a......","........ppppppppp.......","........ccccccccc.......",".......cccccccccc.......",
+  "....nnnnnnnnnnnnnnnnn...","...nnnnnnnnnnnnnnnnnnnN.","..nnnnnnnnnnnnnnnnnnnNNN","..nnnnnnnnnnnnnnnnnnnNNe","..mnnnnnnnnnnnnnnnnn.NN.",
+  ".mm.nn..nn.....nn..nn...","....nn..nn.....nn..nn...","....nn..nn.....nn..nn...","....dd..dd.....dd..dd..."];
+const gaucho = (poncho, stripe, horse, head) => makeSprite(GAUCHO_ROWS, {h:"#1A1A1A", f:"#C08A60", p:poncho, P:stripe, a:"#5A3A1E", c:"#E8E2D0", n:horse, N:head, e:"#1A0E06", m:"#2A1A0E", d:"#1A120A"});
+SP.gaucho1 = gaucho("#B03A2A", "#1A1A1A", "#8A5A34", "#6A4224");
+SP.gaucho2 = gaucho("#2A4A7A", "#F4E9CC", "#C8BCA8", "#9A8E7A");
+SP.gaucho3 = gaucho("#6A4A2A", "#E0B44C", "#3A2A1E", "#2A1E14");
+SP.criollo = gaucho("#74ACDF", "#FFFFFF", "#F0EAE0", "#8A5A34");
+const SEASON_ICON = ["flower", "sun", "leaf", "snow"];
+
+/* ============ Ordenamientos propios (divide y vencerás) ============ */
+function mergeSort(a, cmp){
+  if(a.length <= 1) return a.slice();
+  const m = a.length >> 1, L = mergeSort(a.slice(0,m), cmp), Rr = mergeSort(a.slice(m), cmp), out = [];
+  let i = 0, j = 0;
+  while(i < L.length && j < Rr.length) out.push(cmp(L[i], Rr[j]) <= 0 ? L[i++] : Rr[j++]);
+  while(i < L.length) out.push(L[i++]); while(j < Rr.length) out.push(Rr[j++]);
+  return out;
+}
+function quickSort(a, cmp){
+  const b = a.slice();
+  (function qs(lo, hi){ if(lo >= hi) return;
+    const pi = lo + Math.floor(Math.random()*(hi-lo+1)); [b[pi],b[hi]] = [b[hi],b[pi]];
+    let s = lo; for(let i = lo; i < hi; i++) if(cmp(b[i], b[hi]) < 0){ [b[i],b[s]] = [b[s],b[i]]; s++; }
+    [b[s],b[hi]] = [b[hi],b[s]]; qs(lo, s-1); qs(s+1, hi); })(0, b.length-1);
+  return b;
+}
+
+/* ============ Mochila: greedy vs programación dinámica ============ */
+function knapGreedy(items, cap){
+  const order = mergeSort(items.map((_,i) => i), (a,b) => items[b].v/items[b].p - items[a].v/items[a].p);
+  const sel = new Set(); let c = cap, val = 0;
+  order.forEach(i => { if(items[i].p <= c){ sel.add(i); c -= items[i].p; val += items[i].v; } });
+  return {sel, val, order};
+}
+function knapDP(items, cap){
+  const n = items.length, T = [];
+  for(let i = 0; i <= n; i++) T.push(new Array(cap+1).fill(0));
+  for(let i = 1; i <= n; i++){ const {p, v} = items[i-1];
+    for(let c = 0; c <= cap; c++){ T[i][c] = T[i-1][c]; if(p <= c && T[i-1][c-p] + v > T[i][c]) T[i][c] = T[i-1][c-p] + v; } }
+  const sel = new Set(), cells = []; let c = cap;
+  for(let i = n; i > 0; i--){ cells.push([i,c]); if(T[i][c] !== T[i-1][c]){ sel.add(i-1); c -= items[i-1].p; } }
+  cells.push([0,c]);
+  return {T, sel, val:T[n][cap], cells};
+}
+
+/* ============ Reparto: asignación con Branch & Bound ============ */
+function bbAssign(M){
+  const n = M.length, used = new Array(n).fill(false), a = [], lvlE = new Array(n+1).fill(0), lvlP = new Array(n+1).fill(0);
+  // cota superior inicial: greedy fila por fila
+  let best = 0, bestA = []; { const u = new Array(n).fill(false);
+    for(let r = 0; r < n; r++){ let m = -1; for(let c = 0; c < n; c++) if(!u[c] && (m < 0 || M[r][c] < M[r][m])) m = c; u[m] = true; bestA.push(m); best += M[r][m]; } }
+  const initUB = best; let explored = 0, pruned = 0;
+  // cota inferior optimista: lo asignado + el mínimo libre de cada fila restante (ignora choques entre filas)
+  const bound = (row, acc) => { let b = acc; for(let r = row; r < n; r++){ let m = Infinity; for(let c = 0; c < n; c++) if(!used[c] && M[r][c] < m) m = M[r][c]; b += m; } return b; };
+  (function rec(row, acc){
+    explored++; lvlE[row]++;
+    if(row === n){ if(acc < best){ best = acc; bestA = a.slice(); } return; }
+    const cols = mergeSort([...Array(n).keys()].filter(c => !used[c]), (x,y) => M[row][x] - M[row][y]);
+    for(const c of cols){
+      used[c] = true; a[row] = c;
+      if(bound(row+1, acc + M[row][c]) >= best){ pruned++; lvlP[row+1]++; }
+      else rec(row+1, acc + M[row][c]);
+      used[c] = false;
+    }
+  })(0, 0);
+  let brute = 1, f = 1; for(let k = 0; k < n; k++){ f *= (n-k); brute += f; }
+  return {best, bestA, explored, pruned, lvlE, lvlP, brute, initUB};
+}
+
+/* ============ Estructuras para grafos ============ */
+class MinHeap{
+  constructor(){ this.a = []; }
+  get size(){ return this.a.length; }
+  push(x){ const a = this.a; a.push(x); let i = a.length-1;
+    while(i > 0){ const p = (i-1) >> 1; if(a[p][0] <= a[i][0]) break; [a[p],a[i]] = [a[i],a[p]]; i = p; } }
+  pop(){ const a = this.a, top = a[0], last = a.pop();
+    if(a.length){ a[0] = last; let i = 0;
+      for(;;){ const l = 2*i+1, r = l+1; let m = i;
+        if(l < a.length && a[l][0] < a[m][0]) m = l;
+        if(r < a.length && a[r][0] < a[m][0]) m = r;
+        if(m === i) break; [a[m],a[i]] = [a[i],a[m]]; i = m; } }
+    return top; }
+}
+class UnionFind{
+  constructor(n){ this.p = [...Array(n).keys()]; this.r = new Array(n).fill(0); }
+  find(x){ while(this.p[x] !== x){ this.p[x] = this.p[this.p[x]]; x = this.p[x]; } return x; }
+  union(a,b){ a = this.find(a); b = this.find(b); if(a === b) return false;
+    if(this.r[a] < this.r[b]) [a,b] = [b,a]; this.p[b] = a; if(this.r[a] === this.r[b]) this.r[a]++; return true; }
+}
+
+/* ============ Algoritmos sobre el grafo ============ */
+function pathFrom(prev, src, t){ if(t !== src && prev[t] === undefined) return null; const p = [t]; while(p[0] !== src) p.unshift(prev[p[0]]); return p; }
+function dijkstra(g, src, useBase){
+  const n = g.nodes.length, dist = new Array(n).fill(Infinity), prev = {}, done = new Array(n).fill(false), order = [], h = new MinHeap();
+  let pops = 0, relax = 0;
+  dist[src] = 0; h.push([0, src]);
+  while(h.size){ const [d,u] = h.pop(); pops++; if(done[u]) continue; done[u] = true; order.push(u);
+    for(const {v,e} of g.adj[u]){ relax++; const nd = d + (useBase ? e.base : e.w); if(nd < dist[v]){ dist[v] = nd; prev[v] = u; h.push([nd, v]); } } }
+  return {dist, prev, order, pops, relax};
+}
+function bfs(g, src){
+  const lvl = {[src]:0}, prev = {}, q = [src], order = []; let qi = 0;
+  while(qi < q.length){ const u = q[qi++]; order.push(u); for(const {v} of g.adj[u]) if(!(v in lvl)){ lvl[v] = lvl[u]+1; prev[v] = u; q.push(v); } }
+  return {lvl, prev, order};
+}
+function dfs(g, src){
+  const seen = new Set(), prev = {}, order = [];
+  (function visit(u){ seen.add(u); order.push(u); for(const {v} of g.adj[u]) if(!seen.has(v)){ prev[v] = u; visit(v); } })(src);
+  return {prev, order};
+}
+function greedyWalk(g, src, goal){
+  const path = [src], seen = new Set([src]); let u = src;
+  while(u !== goal && path.length < 20){ let best = null;
+    for(const {v,e} of g.adj[u]) if(!seen.has(v) && (!best || e.w < best.e.w)) best = {v, e};
+    if(!best) break; u = best.v; seen.add(u); path.push(u); }
+  return path;
+}
+function prim(g, src, k){
+  const inT = new Set([src]), edges = [], h = new MinHeap();
+  g.adj[src].forEach(({v,e}) => h.push([e.w, e.i, v]));
+  while(h.size && inT.size < k){ const [, ei, v] = h.pop(); if(inT.has(v)) continue;
+    inT.add(v); edges.push(ei); g.adj[v].forEach(n => { if(!inT.has(n.v)) h.push([n.e.w, n.e.i, n.v]); }); }
+  return {nodes:inT, edges};
+}
+function kruskal(g){
+  const uf = new UnionFind(g.nodes.length), es = mergeSort(g.edges.filter(e => !e.blocked), (a,b) => a.w - b.w), out = []; let total = 0;
+  for(const e of es){ if(uf.union(e.a, e.b)){ out.push(e.i); total += e.w; if(out.length === g.nodes.length-1) break; } }
+  return {edges:out, total};
+}
+function floyd(g, useBase){
+  const n = g.nodes.length, d = [], nx = [];
+  for(let i = 0; i < n; i++){ d.push(new Array(n).fill(Infinity)); nx.push(new Array(n).fill(-1)); d[i][i] = 0; nx[i][i] = i; }
+  g.edges.forEach(e => { if(e.blocked) return; const w = useBase ? e.base : e.w; d[e.a][e.b] = d[e.b][e.a] = w; nx[e.a][e.b] = e.b; nx[e.b][e.a] = e.a; });
+  let relax = 0;
+  for(let k = 0; k < n; k++) for(let i = 0; i < n; i++) for(let j = 0; j < n; j++){ relax++;
+    if(d[i][k] + d[k][j] < d[i][j]){ d[i][j] = d[i][k] + d[k][j]; nx[i][j] = nx[i][k]; } }
+  const negCycle = d.some((r,i) => r[i] < 0);
+  return {d, nx, relax, negCycle};
+}
+function perms(a){ if(a.length <= 1) return [a.slice()]; const out = [];
+  a.forEach((x,i) => perms(a.slice(0,i).concat(a.slice(i+1))).forEach(p => out.push([x].concat(p)))); return out; }
+function backtrack(g, src, goal, budget, maxHops, encPend, prune){
+  let best = null, explored = 0; const path = [src], vis = new Set([src]);
+  const encTotal = encPend.size, hGoal = dijkstra(g, goal).dist; // cota optimista: lo que falta nunca es menos que Dijkstra
+  (function rec(u, cost, enc){
+    explored++;
+    if(u === goal){ if(cost <= budget && (!best || enc > best.enc || (enc === best.enc && cost < best.cost))) best = {path:path.slice(), cost, enc}; return; }
+    if(path.length - 1 >= maxHops) return;
+    for(const {v,e} of g.adj[u]){
+      if(vis.has(v)) continue;
+      const nc = cost + e.w, ne = enc + (encPend.has(v) ? 1 : 0);
+      if(prune){
+        if(nc + hGoal[v] > budget) continue;                                     // ni por el camino mas corto llego con los viveres
+        if(best && encTotal === best.enc && nc + hGoal[v] >= best.cost) continue; // ya tengo todas las cartas y mas barato
+      }
+      vis.add(v); path.push(v); rec(v, nc, ne); path.pop(); vis.delete(v);
+    }
+  })(src, 0, 0);
+  return {best, explored};
+}
+
+/* ============ Mundo fijo: el Mediterráneo de 1129 con coordenadas reales ============ */
+// proyección equirrectangular simple: longitud y latitud reales -> píxeles del pergamino
+const geo = (lon, lat) => [36 + (lon + 1)*13.85, 42 + (50 - lat)*13];
+// dx/dy: pequeños corrimientos para que los nombres no se pisen
+const CITIES = [
+  {name:"París", lat:48.86, lon:2.35, dx:-14, dy:1}, {name:"Troyes", lat:48.30, lon:4.08, dx:12, dy:-3},
+  {name:"Lyon", lat:45.76, lon:4.84, dx:-4, dy:5}, {name:"Barcelona", lat:41.39, lon:2.17}, {name:"Marsella", lat:43.30, lon:5.37, dy:5},
+  {name:"Génova", lat:44.41, lon:8.93}, {name:"Venecia", lat:45.44, lon:12.33}, {name:"Roma", lat:41.90, lon:12.50},
+  {name:"Palermo", lat:38.12, lon:13.36}, {name:"Brindisi", lat:40.63, lon:17.94}, {name:"Tesalónica", lat:40.64, lon:22.94},
+  {name:"Atenas", lat:37.98, lon:23.73}, {name:"Constantinopla", lat:41.01, lon:28.98}, {name:"Iconio", lat:37.87, lon:32.49},
+  {name:"Creta", lat:35.34, lon:25.13}, {name:"Rodas", lat:36.43, lon:28.22}, {name:"Chipre", lat:34.68, lon:33.04, dy:-1},
+  {name:"Antioquía", lat:36.20, lon:36.16, dx:5, dy:-6}, {name:"Trípoli", lat:34.43, lon:35.85, dy:2}, {name:"Jerusalén", lat:31.77, lon:35.21}
+];
+// rutas históricas: [origen, destino, jornadas, terreno]
+const ROUTES = [
+  ["París","Troyes",2,"camino"], ["París","Lyon",3,"camino"], ["Troyes","Lyon",2,"camino"], ["Lyon","Marsella",2,"camino"],
+  ["Lyon","Génova",4,"montana"], ["Marsella","Barcelona",3,"camino"], ["Marsella","Génova",3,"camino"], ["Barcelona","Palermo",6,"mar"],
+  ["Marsella","Roma",4,"mar"], ["Génova","Venecia",3,"camino"], ["Génova","Roma",3,"camino"], ["Venecia","Roma",3,"montana"],
+  ["Roma","Palermo",3,"mar"], ["Roma","Brindisi",4,"camino"], ["Venecia","Brindisi",4,"mar"], ["Palermo","Creta",7,"mar"],
+  ["Palermo","Brindisi",3,"mar"], ["Brindisi","Tesalónica",5,"montana"], ["Brindisi","Atenas",4,"mar"], ["Tesalónica","Atenas",3,"montana"],
+  ["Tesalónica","Constantinopla",4,"camino"], ["Atenas","Creta",2,"mar"], ["Atenas","Rodas",3,"mar"], ["Atenas","Constantinopla",4,"mar"],
+  ["Constantinopla","Iconio",4,"montana"], ["Constantinopla","Rodas",4,"camino"], ["Creta","Rodas",2,"mar"], ["Rodas","Chipre",3,"mar"],
+  ["Iconio","Antioquía",4,"montana"], ["Iconio","Rodas",4,"montana"], ["Chipre","Trípoli",2,"mar"], ["Chipre","Antioquía",3,"mar"],
+  ["Antioquía","Trípoli",2,"camino"], ["Trípoli","Jerusalén",3,"camino"], ["Chipre","Jerusalén",3,"mar"], ["Creta","Chipre",5,"mar"]
+];
+const START_NAMES = ["París", "Troyes", "Lyon", "Barcelona", "Marsella"];
+const ENCOM_NAMES = ["Roma", "Constantinopla", "Chipre"], MARKET_NAMES = ["Venecia", "Atenas"];
+const TERR = {camino:{l:"camino"}, mar:{l:"mar"}, montana:{l:"montaña"}};
+const cityId = n => CITIES.findIndex(c => c.name === n);
+const CITY_KIND = {"París":"capital", "Roma":"capital", "Constantinopla":"capital", "Jerusalén":"goal2",
+  "Barcelona":"port", "Marsella":"port", "Génova":"port", "Venecia":"port", "Palermo":"port", "Brindisi":"port", "Tesalónica":"port",
+  "Atenas":"port", "Creta":"port", "Rodas":"port", "Chipre":"port", "Trípoli":"port"};
+let G = null;
+
+function buildWorld(){
+  const nodes = CITIES.map((c,i) => { const [x,y] = geo(c.lon, c.lat); return {i, x:Math.round(x + (c.dx || 0)), y:Math.round(y + (c.dy || 0)), name:c.name}; });
+  const adjAll = nodes.map(() => []), ek = {};
+  const edges = ROUTES.map(([a, b, w, terr], i) => { const A = nodes[cityId(a)], B = nodes[cityId(b)];
+    return {i, a:A.i, b:B.i, w, base:w, terr, evt:0, blocked:false, mx:(A.x+B.x)/2, my:(A.y+B.y)/2}; });
+  edges.forEach(e => { adjAll[e.a].push({v:e.b, e}); adjAll[e.b].push({v:e.a, e}); ek[e.a+"|"+e.b] = e; ek[e.b+"|"+e.a] = e; });
+  const start = cityId(pick(START_NAMES)), goal = cityId("Jerusalén");
+  const world = {nodes, edges, adjAll, adj:adjAll.map(l => l.slice()), ek, start, goal,
+                 encom:new Set(ENCOM_NAMES.map(cityId)), markets:new Set(MARKET_NAMES.map(cityId))};
+  const D = dijkstra(world, start, true);
+  world.opt = D.dist[goal]; world.optPath = pathFrom(D.prev, start, goal);
+  // misión completa: las 3 cartas y Jerusalén. Floyd (todos contra todos) + probar los 3! órdenes
+  const F = floyd(world, true); let best = null;
+  perms([...world.encom]).forEach(o => { const seq = [start, ...o, goal]; let c = 0; for(let i = 1; i < seq.length; i++) c += F.d[seq[i-1]][seq[i]];
+    if(!best || c < best.cost) best = {cost:c, order:o}; });
+  world.optMission = best.cost; world.missionOrder = best.order;
+  return world;
+}
+
+/* ============ Sonido ============ */
+let AC = null, soundOn = false;
+function beep(fs, dur, type, vol){
+  if(!soundOn) return;
+  try{ AC = AC || new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return; }
+  const t = AC.currentTime; dur = dur || .07;
+  fs.forEach((f,i) => { const o = AC.createOscillator(), g = AC.createGain(); o.type = type || "square"; o.frequency.value = f;
+    g.gain.setValueAtTime(vol || .05, t + i*dur); g.gain.exponentialRampToValueAtTime(.0001, t + (i+1)*dur);
+    o.connect(g); g.connect(AC.destination); o.start(t + i*dur); o.stop(t + (i+1)*dur + .02); });
+}
+function toggleSound(){ soundOn = !soundOn; beep([523,659],.06); }
+
+/* ============ UI inmediata ============ */
+let UI = [], mouse = {x:-1, y:-1}, pointer = false;
+const over = (x, y, w, h) => mouse.x >= x && mouse.x < x+w && mouse.y >= y && mouse.y < y+h;
+function frame(x, y, w, h, rim, face){ R(x, y, w, h, "#000000"); R(x+1, y+1, w-2, h-2, rim); R(x+2, y+2, w-4, h-4, face); }
+function btn(x, y, w, h, label, fn, o){
+  o = o || {};
+  const hov = !o.disabled && over(x, y, w, h);
+  if(hov) pointer = true;
+  const red = o.red, act = o.active;
+  const rim = o.disabled ? "#3E2E20" : red ? "#E0B44C" : act ? "#F4E9CC" : hov ? "#F0D490" : "#A8823A";
+  const face = o.disabled ? "#1E150E" : red ? (hov ? "#A0302A" : "#7A2018") : act ? "#5A4020" : hov ? "#5A3E24" : "#3E2A18";
+  frame(x, y, w, h, rim, face);
+  if(!o.disabled){ const gg = ctx.createLinearGradient(0, y+2, 0, y+h-2); gg.addColorStop(0, "rgba(255,240,210,.16)"); gg.addColorStop(.5, "rgba(255,240,210,0)"); gg.addColorStop(1, "rgba(0,0,0,.28)");
+    ctx.fillStyle = gg; ctx.fillRect(x+2, y+2, w-4, h-4); R(x+2, y+2, w-4, 1, red ? "#D0605A" : "#7A5C3C"); R(x+2, y+h-3, w-4, 1, "#140D08"); }
+  const tc = o.disabled ? "#6E5C42" : "#F4E9CC", iconW = o.icon ? SP[o.icon].width*(h >= 22 ? 2 : 1) + 10 : 0;
+  const room = w - 12 - iconW - (o.right ? mw(o.right, o.sz || 13) + 8 : 0), sz = fitSize(label, room, o.sz || 13);
+  let lx = x + w/2;
+  if(o.icon){ const ic = SP[o.icon], s = h >= 22 ? 2 : 1; spr(ic, x + 6, y + (h - ic.height*s)/2, s); }
+  if(o.left){ tx(label, x + (o.icon ? 10 + SP[o.icon].width*(h >= 22 ? 2 : 1) : 6), y + h/2 + 1, tc, sz, {bl:"middle"});
+    if(o.right) tx(o.right, x + w - 6, y + h/2 + 1, o.rightCol || tc, o.sz || 13, {bl:"middle", al:"right"}); }
+  else tx(label, lx + (o.icon ? 8 : 0), y + h/2 + 1, tc, sz, {bl:"middle", al:"center"});
+  UI.push({x, y, w, h, fn, disabled:o.disabled});
+  return hov;
+}
+// medallón con ícono (botones del mapa)
+function medal(x, y, icon, label, fn, o){
+  o = o || {}; const w = 38, h = 34, hov = !o.disabled && over(x, y, w, h + 10);
+  if(hov) pointer = true;
+  const rim = o.active ? "#F4E9CC" : hov ? "#F0D490" : "#C9A24A";
+  R(x+2, y, w-4, h, "#000000"); R(x, y+2, w, h-4, "#000000");
+  R(x+3, y+1, w-6, h-2, rim); R(x+1, y+3, w-2, h-6, rim);
+  R(x+3, y+3, w-6, h-6, hov ? "#5A3E24" : "#3A2818");
+  R(x+4, y+4, w-8, 1, "#6A4C2C");
+  if(typeof icon === "string" && SP[icon]) sprC(SP[icon], x + w/2, y + h/2, 2);
+  else tx(icon, x + w/2, y + h/2 + 1, C.gold, 22, {f:FT, al:"center", bl:"middle"});
+  if(o.badge){ R(x+w-12, y-3, 14, 12, "#000000"); R(x+w-11, y-2, 12, 10, C.red); tx(String(o.badge), x+w-5, y+3, "#FFFFFF", 11, {al:"center", bl:"middle"}); }
+  tx(label, x + w/2, y + h + 2, hov ? C.parchL : C.parch, 11, {al:"center", sh:"#000000"});
+  UI.push({x, y, w, h: h + 10, fn, disabled:o.disabled});
+  return hov;
+}
+function hit(rx, ry, rw, rh, fn, noPointer){ const h = over(rx, ry, rw, rh); if(h && !noPointer) pointer = true; UI.push({x:rx, y:ry, w:rw, h:rh, fn}); return h; }
+// madera con veta para los paneles (se genera una vez)
+let WOODP = null;
+function woodPat(){
+  if(WOODP) return WOODP;
+  const c = document.createElement("canvas"); c.width = 240; c.height = 240; const g = c.getContext("2d");
+  g.fillStyle = "#2A1C12"; g.fillRect(0, 0, 240, 240);
+  for(let y = 0; y < 240; y++){ const k = Math.sin(y*.19)*.5 + Math.sin(y*.043 + 1)*.5; g.fillStyle = k > 0 ? `rgba(96,64,38,${k*.2})` : `rgba(8,4,2,${-k*.22})`; g.fillRect(0, y, 240, 1); }
+  for(let i = 0; i < 160; i++){ const y = Math.random()*240, x = Math.random()*240, w = 20 + Math.random()*90; g.fillStyle = Math.random() < .5 ? "rgba(120,80,48,.16)" : "rgba(0,0,0,.2)"; g.fillRect(x, y, w, .8); }
+  for(let i = 0; i < 5; i++){ const x = Math.random()*240, y = Math.random()*240; g.strokeStyle = "rgba(0,0,0,.28)"; g.lineWidth = 1;
+    for(let r = 2; r < 9; r += 2.5){ g.beginPath(); g.ellipse(x, y, r*2.4, r*.7, 0, 0, 6.283); g.stroke(); } }
+  WOODP = ctx.createPattern(c, "repeat"); return WOODP;
+}
+function panel(x, y, w, h, title, accent){
+  const ac = accent || "#8A6A24";
+  ctx.fillStyle = "rgba(0,0,0,.4)"; ctx.fillRect(x + 3, y + 4, w, h);
+  R(x, y, w, h, "#000000"); R(x+1, y+1, w-2, h-2, ac);
+  ctx.fillStyle = woodPat(); ctx.fillRect(x+2, y+2, w-4, h-4);
+  const sh = ctx.createLinearGradient(0, y+2, 0, y+h-2);
+  sh.addColorStop(0, "rgba(255,220,160,.08)"); sh.addColorStop(.12, "rgba(0,0,0,0)"); sh.addColorStop(.85, "rgba(0,0,0,0)"); sh.addColorStop(1, "rgba(0,0,0,.35)");
+  ctx.fillStyle = sh; ctx.fillRect(x+2, y+2, w-4, h-4);
+  // esquineros de metal con remache
+  [[x+2, y+2, 1, 1], [x+w-2, y+2, -1, 1], [x+2, y+h-2, 1, -1], [x+w-2, y+h-2, -1, -1]].forEach(([cx, cy, dx, dy]) => {
+    ctx.fillStyle = "#B08A3A"; ctx.fillRect(dx > 0 ? cx : cx - 8, dy > 0 ? cy : cy - 2, 8, 2); ctx.fillRect(dx > 0 ? cx : cx - 2, dy > 0 ? cy : cy - 8, 2, 8);
+    ctx.fillStyle = "#F0D48A"; ctx.beginPath(); ctx.arc(cx + dx*4, cy + dy*4, 1.3, 0, 6.283); ctx.fill(); });
+  if(title){
+    const tg = ctx.createLinearGradient(0, y+2, 0, y+19); tg.addColorStop(0, "#4E3622"); tg.addColorStop(1, "#2A1C12");
+    ctx.fillStyle = tg; ctx.fillRect(x+2, y+2, w-4, 17); R(x+2, y+19, w-4, 1, ac); R(x+2, y+20, w-4, 1, "rgba(0,0,0,.4)");
+    R(x+9, y+5, 2, 10, C.red); R(x+6, y+8, 8, 2, C.red);
+    tx(title, x+19, y+3, C.gold, 15, {f:FT, sh:"#000000"});
+  }
+}
+function card(x, y, w, h, border){ R(x, y, w, h, border || C.ink); R(x+1, y+1, w-2, h-2, C.parchL); R(x+1, y+h-3, w-2, 2, "#E2D2AA"); }
+function bottomBar(){ R(0, 296, VW, 64, "#000000"); ctx.fillStyle = woodPat(); ctx.fillRect(0, 297, VW, 63);
+  ctx.fillStyle = "rgba(0,0,0,.55)"; ctx.fillRect(0, 297, VW, 63); R(0, 296, VW, 1, "#8A6A24"); R(0, 297, VW, 1, "rgba(255,220,160,.12)"); }
+function topBar(title, tag){
+  R(0, 0, VW, 21, "#000000"); ctx.fillStyle = woodPat(); ctx.fillRect(0, 0, VW, 20); ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(0, 0, VW, 20); R(0, 20, VW, 1, "#8A6A24");
+  btn(3, 3, 64, 15, "‹ inicio (esc)", () => { if(!(scene.noEsc && scene.noEsc())) go("title"); }, {sz:12});
+  const s = `sonido (M): ${soundOn ? "sí" : "no"}`, tw2 = mw(title, 15, FT);
+  tx(title, 74, 2, C.gold, 15, {f:FT});
+  if(tag) txFit(tag, 80 + tw2, 5, VW - 100 - tw2 - mw(s, 12), C.parch, 12);
+  tx(s, VW-6, 5, C.muted, 12, {al:"right"}); const w = mw(s, 12);
+  hit(VW-6-w, 2, w, 15, toggleSound);
+}
+function stars(n, cx, y, sz){ const w = sz*3.2;
+  for(let i = 0; i < 3; i++) tx("★", cx - w/2 + i*sz*1.1, y, i < n ? C.gold : "#3E2E20", sz, {f:"serif", sh:"#000000"}); }
+const parts = [];
+function puff(x, y, col){ if(reduced) return; for(let i = 0; i < 16; i++){ const a = i/16*6.283;
+  parts.push({x, y, vx:Math.cos(a)*.7, vy:Math.sin(a)*.7, life:28, col:col || (i % 2 ? "#E0B44C" : "#F4E9CC")}); } }
+function drawParts(){ for(let i = parts.length-1; i >= 0; i--){ const q = parts[i]; q.x += q.vx; q.y += q.vy; q.life--;
+  if(q.life <= 0){ parts.splice(i,1); continue; } ctx.fillStyle = q.col; ctx.fillRect(q.x, q.y, 1.5, 1.5); } }
+
+/* ============ Avisos en pantalla: toasts y carteles ============ */
+const TOASTS = [], BANNERS = [];
+function toast(msg, o){ o = o || {}; TOASTS.push({msg, icon:o.icon, col:o.col || C.ink2, t0:null, dur:o.dur || 3200 + msg.length*45}); }
+function banner(title, sub, icon){ BANNERS.push({title, sub, icon, t0:null}); }
+function news(msg, icon, col){ if(S) S.news.push(msg); toast(msg, {icon, col}); }
+function drawOverlays(t){
+  if(BANNERS.length){
+    const b = BANNERS[0]; if(b.t0 === null) b.t0 = t;
+    const a = t - b.t0, dur = 2300;
+    if(a > dur) BANNERS.shift();
+    else { const k = a < 250 ? a/250 : a > dur-350 ? (dur-a)/350 : 1, y = 132;
+      ctx.globalAlpha = k;
+      R(0, y, VW, 64, "rgba(10,6,3,.82)"); R(0, y+3, VW, 1, C.gold); R(0, y+60, VW, 1, C.gold);
+      const tw2 = mw(b.title, 32, FT), ix = VW/2 - tw2/2 - 30;
+      if(b.icon && SP[b.icon]) sprC(SP[b.icon], ix, y + 26, 3);
+      txFit(b.title, VW/2 + (b.icon ? 8 : 0), y + 8 - (1-k)*6, 520, C.gold, 32, {f:FT, al:"center", sh:"#000000"});
+      if(b.sub) txFit(b.sub, VW/2, y + 44, 600, C.parch, 13, {al:"center"});
+      ctx.globalAlpha = 1; }
+  }
+  while(TOASTS.length && TOASTS[0].t0 !== null && t - TOASTS[0].t0 > TOASTS[0].dur) TOASTS.shift();
+  TOASTS.slice(0, 3).forEach((q, i) => {
+    if(q.t0 === null) q.t0 = t;
+    const a = t - q.t0, k = clamp(a/250, 0, 1), fade = clamp((q.dur - a)/400, 0, 1);
+    const lines = wrapT(q.msg, 380, 13), w = Math.min(420, Math.max(...lines.map(l => mw(l, 13))) + (q.icon ? 40 : 20)), h = 10 + lines.length*13;
+    const x = VW/2 - w/2, y = 44 + i*34 - (1-ease(k))*16;
+    ctx.globalAlpha = Math.min(k, fade);
+    R(x+2, y+2, w, h, "rgba(0,0,0,.45)"); card(x, y, w, h, q.col); R(x+1, y+1, 3, h-2, q.col);
+    if(q.icon && SP[q.icon]) sprC(SP[q.icon], x + 18, y + h/2, 2);
+    lines.forEach((l, j) => tx(l, x + (q.icon ? 32 : 12), y + 5 + j*13, C.ink, 13));
+    ctx.globalAlpha = 1;
+  });
+}
+
+/* ============ Objetos templarios (un solo uso) ============ */
+const RELIC = {
+  dijkstra:{name:"Pergamino de Dijkstra", alg:"Dijkstra", col:C.dij, desc:"Revela el camino de menos jornadas desde donde estés hasta Jerusalén."},
+  bfs:     {name:"Brújula de BFS", alg:"BFS", col:C.bfs, desc:"Explora por niveles: descubre el mapa 3 ciudades a la redonda y el camino con menos etapas."},
+  dfs:     {name:"Antorcha de DFS", alg:"DFS", col:C.dfs, desc:"Se mete en profundidad: ilumina un pasillo entero hasta Jerusalén, aunque no sea el mejor."},
+  greedy:  {name:"Instinto del Escudero", alg:"Greedy", col:C.gre, desc:"Siempre toma el tramo más barato que tenga adelante. Rápido, pero miope."},
+  floyd:   {name:"Mapa del Gran Maestre", alg:"Floyd-Warshall", col:C.flo, desc:"Descubre todas las ciudades y anota cuántas jornadas le faltan a cada una hasta Jerusalén."},
+  kruskal: {name:"Sello de Kruskal", alg:"Kruskal", col:C.kru, desc:"La Orden empiedra su red mínima: cada tramo de ella cuesta 1 jornada menos."},
+  prim:    {name:"Estandarte de Prim", alg:"Prim", col:C.pri, desc:"Desde tu ciudad crece una red de postas: en 5 ciudades cercanas te dan 2 jornadas de víveres."},
+  backtrack:{name:"Rosario del Peregrino", alg:"Backtracking", col:C.bt, desc:"Prueba rutas una a una y marca la que entrega más cartas sin quedarte sin víveres."}
+};
+const RELIC_IDS = Object.keys(RELIC);
+
+/* ============ Mochilas ============ */
+const ITEM_POOL = [
+  {n:"Pan de centeno", t:"comida", ic:"pan"}, {n:"Carne salada", t:"comida", ic:"carne"}, {n:"Queso curado", t:"comida", ic:"queso"},
+  {n:"Higos secos", t:"comida", ic:"higos"}, {n:"Dátiles", t:"comida", ic:"higos"}, {n:"Odre de agua", t:"agua", ic:"odre"},
+  {n:"Vino aguado", t:"agua", ic:"odre"}, {n:"Agua de pozo", t:"agua", ic:"odre"},
+  {n:"Reliquia santa", t:"fe", ic:"reliquia"}, {n:"Salterio", t:"fe", ic:"libro"}, {n:"Cruz de plata", t:"fe", ic:"cruz"},
+  {n:"Espada", t:"arma", ic:"espada"}, {n:"Escudo de roble", t:"arma", ic:"escudo"}, {n:"Ungüentos", t:"cura", ic:"hierbas"}
+];
+const TIPO = {comida:{l:"Comida", c:"#E0B44C"}, agua:{l:"Agua", c:"#6AB0E0"}, fe:{l:"Fe", c:"#F4E9CC"}, arma:{l:"Arma", c:"#D86A5A"}, cura:{l:"Cura", c:"#8AC05A"}};
+const PERK = {fe:"atrae templarios", arma:"ahuyenta bandidos", cura:"te roban menos"};
+const isGear = it => it.t === "fe" || it.t === "arma" || it.t === "cura";
+
+// datos fijos y documentables: en las tres mochilas el greedy por valor/peso NO llega al óptimo
+const PACK_INICIAL = {cap:15, items:[["Pan de centeno",2,2], ["Carne salada",3,6], ["Queso curado",4,5], ["Odre de agua",2,4], ["Vino aguado",8,10],
+  ["Reliquia santa",4,2], ["Salterio",2,2], ["Espada",5,3], ["Ungüentos",3,2]]};
+const PACK_MERCADO = {
+  "Venecia":[["Pan de centeno",5,4], ["Higos secos",3,4], ["Queso curado",4,5], ["Vino aguado",4,5], ["Odre de agua",2,3], ["Escudo de roble",4,2], ["Cruz de plata",3,2]],
+  "Atenas": [["Dátiles",3,5], ["Carne salada",5,7], ["Higos secos",5,5], ["Agua de pozo",1,1], ["Vino aguado",1,2], ["Espada",4,3], ["Ungüentos",5,4]]
+};
+function makePack(list, cap){
+  const items = list.map(([n, p, v]) => ({...ITEM_POOL.find(i => i.n === n), p, v}));
+  return {items, cap, greedy:knapGreedy(items, cap), dp:knapDP(items, cap), sel:new Set(), usedHint:false, applied:false};
+}
+function initialPack(){ return {...makePack(PACK_INICIAL.items, PACK_INICIAL.cap), mode:"inicio", title:"Partida desde " + G.nodes[G.start].name}; }
+const foodKg = () => Math.ceil(S.viv/2);   // los víveres que llevás ocupan lugar: 1 kg cada 2 jornadas
+function marketPack(){
+  const city = G.nodes[S.cur].name, cap = Math.max(3, S.cap - S.gearW - foodKg());
+  return {...makePack(PACK_MERCADO[city], cap), mode:"mercado", title:"Mercado de " + city};
+}
+
+/* ============ Estado, estaciones, niebla y eventos del mapa ============ */
+const SEASONS = [
+  {n:"Primavera", c:"#6EA03A", d:"los caminos están tranquilos"},
+  {n:"Verano", c:"#C08A1A", mar:-1, d:"buen viento: el mar cuesta 1 jornada menos"},
+  {n:"Otoño", c:"#C0601A", mar:2, d:"tormentas: el mar cuesta 2 jornadas más"},
+  {n:"Invierno", c:"#4A7AA8", mont:2, d:"nieve: la montaña cuesta 2 jornadas más"}
+];
+const SEASON_LEN = 8;
+let S = null;
+function recompute(){
+  const se = SEASONS[S.season];
+  G.edges.forEach(e => { let m = e.evt;
+    if(e.terr === "mar") m += se.mar || 0; if(e.terr === "montana") m += se.mont || 0; if(S.calz.has(e.i)) m -= 1;
+    e.w = Math.max(1, e.base + m); });
+  G.adj = G.adjAll.map(l => l.filter(o => !o.e.blocked));
+}
+function see(u){ S.knownN.add(u); G.adjAll[u].forEach(({v,e}) => { S.knownN.add(v); S.knownE.add(e.i); }); }
+function revealPath(p){ if(!p) return; p.forEach((u,i) => { S.knownN.add(u); if(i) S.knownE.add(G.ek[p[i-1]+"|"+u].i); }); }
+function revealEdges(list){ list.forEach(ei => { const e = G.edges[ei]; S.knownE.add(ei); S.knownN.add(e.a); S.knownN.add(e.b); }); }
+function keepsConnected(x){
+  const seen = new Set([G.goal]), q = [G.goal];
+  while(q.length){ const u = q.pop(); for(const {v,e} of G.adjAll[u]) if(!e.blocked && e !== x && !seen.has(v)){ seen.add(v); q.push(v); } }
+  return seen.size === G.nodes.length;
+}
+function mapEvent(){
+  const cand = [...S.knownE].map(i => G.edges[i]).filter(e => !e.blocked && !e.evtDone);
+  if(!cand.length) return;
+  const e = pick(cand), A = G.nodes[e.a].name, B = G.nodes[e.b].name, r = Math.random(); e.evtDone = true;
+  if(r < .35){ e.evt += 3; news(`Cayó el puente entre ${A} y ${B}: ese tramo cuesta 3 jornadas más.`, "stone", C.red); }
+  else if(r < .65 && keepsConnected(e)){ e.blocked = true; news(`Un ejército corta el paso entre ${A} y ${B}: camino bloqueado.`, "escudo", C.red); }
+  else { e.evt -= 2; news(`Unos pastores te muestran un atajo entre ${A} y ${B}: 2 jornadas menos.`, "olive", C.bfs); }
+}
+function stuck(){ return S.cur !== G.goal && !G.adj[S.cur].some(o => o.e.w <= S.viv); }
+function backToMap(){
+  if(!S.over && stuck()) S.over = "lose";
+  if(!S.over && S.bragado === "pend"){ S.bragado = "visto"; go("bragado"); return; }
+  go(S.over ? "fin" : "mapa");
+}
+// revela la niebla hasta cierta distancia (en tramos) alrededor de una ciudad
+function revealAround(u, depth){ const lvl = {[u]:0}, q = [u];
+  while(q.length){ const a = q.shift(); if(lvl[a] < depth){ see(a); G.adjAll[a].forEach(({v}) => { if(!(v in lvl)){ lvl[v] = lvl[a] + 1; q.push(v); } }); } } }
+
+/* ============ El caballo: edad, etapas y premios ============ */
+const STAGE_RANK = {viejo:0, adulto:1, joven:2, criollo:3};
+const STAGE_INFO = {
+  joven:"a veces galopa y te ahorra una jornada; deja atrás a los lobos",
+  adulto:"firme y sin sorpresas",
+  viejo:"conoce el camino, pero se cansa y se lastima más seguido",
+  criollo:"regalo de Bragado: no se lastima ni se cansa nunca"
+};
+const horseStage = h => h.criollo ? "criollo" : h.age <= 6 ? "joven" : h.age <= 12 ? "adulto" : "viejo";
+const horseLabel = h => h.criollo ? "criollo" : `${horseStage(h)} · ${h.age} años`;
+function rewardPreview(stars){
+  if(stars < 2) return "Sin caballo de premio (hace falta 2 o 3 estrellas)";
+  const neo = stars === 3 ? "joven" : "adulto";
+  return STAGE_RANK[neo] > STAGE_RANK[horseStage(S.horse)] ? `Premio: un caballo ${neo}` : `Premio: +1 víver (tu caballo ya es ${horseStage(S.horse)})`;
+}
+function rewardHorse(stars, who){
+  if(stars < 2) return;
+  const neo = stars === 3 ? {age:ri(3, 5), criollo:false} : {age:ri(7, 10), criollo:false};
+  if(STAGE_RANK[horseStage(neo)] > STAGE_RANK[horseStage(S.horse)]){
+    S.horse = neo; news(`${who} te da un caballo ${horseStage(neo)} de ${neo.age} años por hacerlo tan bien.`, "horseIcon", C.gold);
+  } else { S.viv += 1; news(`${who} te da 1 víver: tu caballo ya era ${horseStage(S.horse)}.`, "horseIcon", C.gold); }
+}
+
+function newGame(){
+  G = buildWorld();
+  TOASTS.length = 0; BANNERS.length = 0;
+  S = {cur:G.start, trail:[], visited:[G.start], viv:0, used:0, def:0, fe:0, cura:0, gearW:0, cap:0, inv:[], trips:0,
+       letters:new Set(), marketsUsed:new Set(), postas:new Set(), postasUsed:new Set(), calz:new Set(),
+       knownN:new Set([G.goal, ...G.encom]), knownE:new Set(), season:0, news:[], overlay:null, badges:null,
+       log:[], packs:[], bb:null, bbDone:false, over:null, horse:{age:ri(3, 17), criollo:false}, bula:null, bulaDone:false, bragado:null, seenEv:new Set()};
+  S.pack = initialPack(); S.cap = S.pack.cap;
+  see(G.start); recompute();
+  go("mochila");
+}
+
+/* ============ Escena: TÍTULO ============ */
+const TITLE = (function(){
+  const starsBg = [...Array(160)].map(() => [Math.random()*VW, Math.random()*200, Math.random()]);
+  const far = [...Array(VW + 1)].map((_,x) => 214 + Math.sin(x/90)*16 + Math.sin(x/31 + 2)*6);
+  const mid = [...Array(VW + 1)].map((_,x) => 246 + Math.sin(x/70 + 1)*12 + Math.sin(x/23)*4);
+  const near = [...Array(VW + 1)].map((_,x) => 290 + Math.sin(x/110 + 3)*10 + Math.sin(x/37)*3);
+  const embers = [];
+  const canCont = () => S && !S.over && S.pack && S.pack.applied;
+  function ridgeFill(arr, col){ ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, VH); arr.forEach((h, x) => ctx.lineTo(x, h)); ctx.lineTo(VW, VH); ctx.fill(); }
+  function glow(x, y, r, col){ const g = ctx.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, col); g.addColorStop(1, "rgba(0,0,0,0)"); ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r*2, r*2); }
+  function castle(t){
+    const cx = 112, cy = 214, col = "#140A0C";
+    ctx.fillStyle = col;
+    ctx.fillRect(cx-56, cy, 112, 70); ctx.fillRect(cx-66, cy-34, 24, 104); ctx.fillRect(cx+42, cy-34, 24, 104); ctx.fillRect(cx-14, cy-52, 28, 122);
+    ctx.beginPath(); ctx.moveTo(cx-18, cy-52); ctx.lineTo(cx, cy-74); ctx.lineTo(cx+18, cy-52); ctx.fill();
+    for(let i = 0; i < 6; i++){ ctx.fillRect(cx-66 + i*4.4, cy-39, 2.4, 5); ctx.fillRect(cx+42 + i*4.4, cy-39, 2.4, 5); }
+    for(let i = 0; i < 13; i++) ctx.fillRect(cx-56 + i*8.8, cy-5, 4, 5);
+    // ventanas con luz que titila
+    [[cx-3, cy-36, 6, 9], [cx-58, cy-14, 4, 7], [cx+50, cy-14, 4, 7], [cx-30, cy+18, 4, 6], [cx+24, cy+18, 4, 6], [cx-4, cy+10, 8, 12]].forEach(([x, y, w, h], i) => {
+      const f = .7 + Math.sin(t/(180 + i*37) + i)*.15 + Math.sin(t/63 + i*2)*.08;
+      glow(x + w/2, y + h/2, 16, `rgba(255,170,60,${.35*f})`); ctx.fillStyle = `rgba(255,${180 + 40*f | 0},90,${f})`; ctx.fillRect(x, y, w, h); });
+    // antorchas
+    [[cx-72, cy+6], [cx+70, cy+6]].forEach(([x, y], i) => { ctx.fillStyle = "#2A1A10"; ctx.fillRect(x - 1, y, 2, 10);
+      const fl = Math.sin(t/70 + i*3)*1.5; glow(x, y - 3, 26, "rgba(255,140,40,.45)");
+      ctx.fillStyle = "#FFB040"; ctx.beginPath(); ctx.moveTo(x - 3, y); ctx.quadraticCurveTo(x + fl, y - 12, x + 3, y); ctx.fill();
+      ctx.fillStyle = "#FFF0A0"; ctx.beginPath(); ctx.moveTo(x - 1.5, y); ctx.quadraticCurveTo(x + fl*.6, y - 6, x + 1.5, y); ctx.fill();
+      if(!reduced && Math.random() < .25) embers.push({x, y:y - 6, vx:(Math.random() - .5)*.4, vy:-.5 - Math.random()*.6, life:90 + Math.random()*60}); });
+    // estandarte Beauseant ondeando
+    ctx.fillStyle = "#3A2614"; ctx.fillRect(cx - 1, cy - 108, 2, 36);
+    for(let k = 0; k < 18; k++){ const wv = reduced ? 0 : Math.sin(t/220 - k*.45)*(k*.18);
+      ctx.fillStyle = "#F4E9CC"; ctx.fillRect(cx + 1 + k, cy - 107 + wv, 1.2, 7); ctx.fillStyle = "#140D08"; ctx.fillRect(cx + 1 + k, cy - 100 + wv, 1.2, 7); }
+  }
+  function rider(t){
+    // un templario cabalga por la loma, a contraluz
+    const per = 26000, p = ((t % per)/per), x = VW + 40 - p*(VW + 80), hIdx = clamp(Math.round(x), 0, VW), y = near[hIdx] + 2, gal = reduced ? 0 : Math.abs(Math.sin(t/110))*1.5;
+    ctx.save(); ctx.translate(x, y - gal); ctx.scale(-1, 1); ctx.globalAlpha = .95;
+    const w = SP.gaucho1.width*.9, h = SP.gaucho1.height*.9;
+    ctx.filter = "brightness(0)"; ctx.drawImage(SP.gaucho1, -w/2, -h, w, h); ctx.filter = "none";
+    ctx.strokeStyle = "#0A0505"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-2, -h + 4); ctx.lineTo(10, -h - 14); ctx.stroke();
+    ctx.fillStyle = "#F4E9CC"; ctx.fillRect(7, -h - 14, 6, 2); ctx.fillStyle = "#0A0505"; ctx.fillRect(7, -h - 12, 6, 2);
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
+  function draw(t){
+    const g = ctx.createLinearGradient(0, 0, 0, VH); g.addColorStop(0, "#0C0818"); g.addColorStop(.45, "#2A1630"); g.addColorStop(.75, "#6A2E2A"); g.addColorStop(1, "#1A0E0A");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+    starsBg.forEach(([x, y, b]) => { const a = .35 + (Math.sin(t/400 + b*40) + 1)*.3; ctx.fillStyle = `rgba(244,233,204,${a})`; ctx.fillRect(x, y, b > .85 ? 1.6 : .9, b > .85 ? 1.6 : .9); });
+    // luna con halo
+    glow(150, 50, 70, "rgba(244,233,204,.18)");
+    ctx.fillStyle = "#F4E9CC"; ctx.beginPath(); ctx.arc(150, 50, 16, 0, 6.283); ctx.fill();
+    ctx.fillStyle = "#0E0A1C"; ctx.beginPath(); ctx.arc(157, 45, 14, 0, 6.283); ctx.fill();
+    ridgeFill(far, "#2E1A28"); ridgeFill(mid, "#1E1018");
+    const mist = ctx.createLinearGradient(0, 230, 0, 280); mist.addColorStop(0, "rgba(120,70,70,0)"); mist.addColorStop(.5, "rgba(140,80,70,.25)"); mist.addColorStop(1, "rgba(120,70,70,0)");
+    ctx.fillStyle = mist; ctx.fillRect(0, 230, VW, 50);
+    castle(t);
+    ridgeFill(near, "#0E0608");
+    rider(t);
+    // brasas que suben
+    for(let i = embers.length - 1; i >= 0; i--){ const e = embers[i]; e.x += e.vx + Math.sin(t/300 + i)*.1; e.y += e.vy; e.life--;
+      if(e.life <= 0){ embers.splice(i, 1); continue; } ctx.fillStyle = `rgba(255,${150 + (e.life % 60)},60,${Math.min(1, e.life/80)})`; ctx.fillRect(e.x, e.y, 1.2, 1.2); }
+    // título con dorado
+    const tg = ctx.createLinearGradient(0, 50, 0, 106); tg.addColorStop(0, "#FFF0B0"); tg.addColorStop(.5, "#E0B44C"); tg.addColorStop(1, "#9A6A1A");
+    tx("La Ruta del Temple", 396, 53, "rgba(40,6,4,.9)", 56, {f:FT, al:"center"});
+    tx("La Ruta del Temple", 393, 50, tg, 56, {f:FT, al:"center", sh:"#5A1410"});
+    R(300, 112, 186, 1, "rgba(224,180,76,.6)"); R(388, 108, 2, 9, C.red); R(384.5, 111.5, 9, 2, C.red);
+    tx("Anno Domini 1129", 393, 118, C.parch, 20, {f:FT, al:"center", sh:"#000000"});
+    para("El Concilio de Troyes acaba de reconocer a la Orden del Temple. Partís desde una ciudad de Occidente con tres cartas selladas para tres encomiendas y un mensaje para Jerusalén. El mapa está en niebla, las estaciones cambian los caminos y solo los caballeros que encuentres saben ver más allá.",
+      250, 146, 290, "#E8D9B4", 14, 14, {sh:"#000000"});
+    const y0 = 242;
+    if(canCont()) btn(298, y0, 190, 22, "Continuar peregrinación (C)", () => go("mapa"), {sz:14});
+    btn(298, y0 + (canCont() ? 26 : 0), 190, 22, "Nueva peregrinación (Enter)", newGame, {red:true, sz:14});
+    tx("Mochila: greedy vs PD · Caminos: BFS, DFS, Dijkstra, Prim, Kruskal, Floyd · Backtracking · Branch & Bound", VW/2, 342, "#A08A66", 12, {al:"center", sh:"#000000"});
+    const s = `sonido (M): ${soundOn ? "sí" : "no"}`; tx(s, VW-8, 6, C.muted, 12, {al:"right"}); const w = mw(s, 12); hit(VW-8-w, 4, w, 14, toggleSound);
+    const fs = "pantalla completa (F)", fw = mw(fs, 12); tx(fs, VW-16-w-fw, 6, C.muted, 12); hit(VW-16-w-fw, 4, fw, 14, toggleFullscreen);
+  }
+  return {draw, key(k){ if(k === "enter") newGame(); else if(k === "c" && canCont()) go("mapa"); }, click(){}, move(){}};
+})();
+
+/* ============ Escena: MOCHILA (partida y mercados) ============ */
+const MOCHILA = (function(){
+  let order = [], sortMode = 0, msg = "", hint = false;
+  const SORTS = ["original", "valor/peso (MergeSort)", "peso (QuickSort)"];
+  const P = () => S.pack;
+  const peso = () => sum([...P().sel], i => P().items[i].p);
+  const valor = () => sum([...P().sel], i => P().items[i].v);
+  const cnt = t => [...P().sel].filter(i => P().items[i].t === t).length;
+  function enter(){ order = P().items.map((_,i) => i); sortMode = 0; hint = false; msg = "";
+    if(P().mode === "mercado") banner(P().title, "La comida que comiste liberó lugar en la mochila", "tent"); }
+  function toggle(i){
+    const it = P().items[i];
+    if(P().sel.has(i)){ P().sel.delete(i); beep([294],.05); return; }
+    if(peso() + it.p > P().cap){ msg = `${it.n} pesa ${it.p} kg y te quedan ${P().cap - peso()} kg libres.`; beep([140,100],.09,"sawtooth",.04); return; }
+    P().sel.add(i); msg = ""; beep([392,523],.05);
+  }
+  function cycleSort(){
+    sortMode = (sortMode+1) % 3; const idx = P().items.map((_,i) => i), it = P().items;
+    if(sortMode === 0) order = idx;
+    else if(sortMode === 1){ order = mergeSort(idx, (a,b) => it[b].v/it[b].p - it[a].v/it[a].p); msg = "MergeSort: divide la lista a la mitad, ordena cada mitad y las intercala. O(n log n)."; }
+    else { order = quickSort(idx, (a,b) => it[a].p - it[b].p); msg = "QuickSort: elige un pivote y parte en menores y mayores. O(n log n) promedio."; }
+    beep([440],.04);
+  }
+  function giveHint(){ hint = !hint; if(hint){ P().usedHint = true; msg = `El escudero elige por valor/peso (greedy): ${P().greedy.val} jornadas. ¿Será lo mejor?`; } }
+  function depart(){
+    if(!P().sel.size && P().mode === "inicio"){ msg = "La mochila está vacía: no llegás ni a la primera posada."; return; }
+    go("veredicto");
+  }
+  function draw(t){
+    const pk = P(), market = pk.mode === "mercado";
+    R(0, 0, VW, VH, "#1A110B");
+    for(let i = 0; i < 40; i++) R(0, 21 + i*8, 476, 1, "#20150D");
+    order.forEach((i, k) => {
+      const it = pk.items[i], col = k % 3, row = (k/3) | 0, x = 8 + col*156, y = 26 + row*90, w = 150, h = 86;
+      const on = pk.sel.has(i), gh = hint && pk.greedy.sel.has(i), hov = over(x, y, w, h);
+      frame(x, y, w, h, on ? C.gold : hov ? "#C9A86A" : "#5A4024", on ? "#4A3418" : "#2A1C12");
+      R(x+5, y+6, 34, 28, "#1A110B"); spr(SP[it.ic], x+7, y+8, 3);
+      tx(it.n, x+44, y+6, C.parchL, mw(it.n, 14) > w-50 ? 12 : 14);
+      tx(TIPO[it.t].l, x+44, y+20, TIPO[it.t].c, 12);
+      tx(`Peso ${it.p} kg`, x+6, y+38, C.parch, 13);
+      tx(`Valor ${it.v} jornadas`, x+6, y+50, C.gold, 13);
+      tx(`Razón ${(it.v/it.p).toFixed(2)}`, x+6, y+62, C.muted, 12);
+      if(PERK[it.t]) tx(PERK[it.t], x+6, y+73, "#C9A86A", 12);
+      if(on){ R(x+w-52, y+40, 46, 12, C.red); tx("llevado", x+w-29, y+46, C.parchL, 12, {al:"center", bl:"middle"}); }
+      if(gh){ R(x+w-52, y+55, 46, 12, C.gre); tx("escudero", x+w-29, y+61, "#140D08", 12, {al:"center", bl:"middle"}); }
+      hit(x, y, w, h, () => toggle(i));
+    });
+    panel(480, 26, 156, 266, market ? "Lugar libre" : "Tu mochila");
+    const bx = 490, by = 50, bw = 30, bh = 130, used = peso();
+    frame(bx, by, bw, bh, "#8A6A24", "#120B07");
+    let yy = by + bh - 2;
+    [...pk.sel].forEach(i => { const it = pk.items[i], hh = (bh-4)*it.p/pk.cap; yy -= hh; R(bx+2, yy, bw-4, hh, TIPO[it.t].c); R(bx+2, yy, bw-4, 1, "#140D08"); });
+    for(let k = 1; k < pk.cap; k++) R(bx+bw-5, by + 2 + k*(bh-4)/pk.cap, 3, 1, "#3E2E20");
+    tx(market ? "Libre" : "Peso", 528, 50, C.muted, 12); tx(`${used}/${pk.cap} kg`, 528, 60, used === pk.cap ? C.gold : C.parchL, 20);
+    tx(market ? "Suma" : "Resistencia", 528, 82, C.muted, 12); tx("+" + valor(), 528, 92, C.gold, 20); tx("jornadas", 560, 98, C.muted, 12);
+    tx("Defensa", 528, 116, C.muted, 12); tx(String(S.def + cnt("arma")), 528, 126, "#D86A5A", 20);
+    tx("Fe", 584, 116, C.muted, 12); tx(String(S.fe + cnt("fe")), 584, 126, C.parchL, 20);
+    if(market) para(`Ya cargás ${S.gearW} kg de equipo y ${foodKg()} kg de víveres (${S.viv} jornadas).`, 528, 148, 104, "#C9A86A", 12);
+    else para(`La misión completa ronda las ${Math.round(G.optMission*.9)} a ${G.optMission + 6} jornadas.`, 528, 148, 104, "#C9A86A", 12);
+    btn(486, 190, 144, 18, "Ordenar (O)", cycleSort, {active:sortMode > 0, sz:13});
+    btn(486, 211, 144, 18, hint ? "Ocultar escudero (G)" : "Consejo escudero (G)", giveHint, {active:hint, sz:13});
+    btn(486, 232, 144, 18, "Vaciar (V)", () => { pk.sel.clear(); msg = ""; }, {disabled:!pk.sel.size, sz:13});
+    btn(486, 256, 144, 30, market ? "Cargar y seguir" : "Partir (Enter)", depart, {red:true, sz:15, icon:"backpack"});
+    topBar(market ? pk.title : "La mochila", "· mochila 0/1 · greedy vs programación dinámica");
+    bottomBar();
+    txFit(market ? `Mercado de ${G.nodes[S.cur].name}: cargá lo que entre. Cada objeto suma jornadas de víveres.`
+              : `Partís desde ${G.nodes[G.start].name} con ${pk.cap} kg de lugar. Cada objeto suma jornadas de víveres.`, 8, 302, 624, C.parch, 13);
+    txFit(msg || "Clic en una carta para cargarla o descargarla. Al seguir, el Maestre revela la mejor mochila posible (PD).", 8, 318, 624, msg ? "#F0C47A" : C.muted, 13);
+    tx(`Orden: ${SORTS[sortMode]}   ·   atajos: O ordenar, G escudero, V vaciar, Enter seguir`, 8, 338, "#8A7656", 12);
+  }
+  return {enter, draw, noEsc:() => S.pack.mode === "mercado",
+    key(k){ if(k === "o") cycleSort(); else if(k === "g") giveHint(); else if(k === "v") P().sel.clear(); else if(k === "enter") depart(); }, click(){}, move(){}};
+})();
+
+/* ============ Escena: VEREDICTO DEL MAESTRE (PD) ============ */
+const VEREDICTO = (function(){
+  let t0 = 0;
+  const P = () => S.pack;
+  const you = () => sum([...P().sel], i => P().items[i].v);
+  const packStars = () => you() === P().dp.val ? 3 : you() >= P().dp.val*.9 ? 2 : 1;
+  function enter(){ t0 = performance.now(); }
+  function apply(){
+    const pk = P(); if(pk.applied){ go("mapa"); return; }
+    pk.applied = true;
+    const sel = [...pk.sel].map(i => pk.items[i]), cnt = t => sel.filter(i => i.t === t).length;
+    S.viv += you(); S.def += cnt("arma"); S.fe += cnt("fe"); S.cura += cnt("cura"); S.gearW += sum(sel.filter(isGear), i => i.p);
+    S.packs.push({title:pk.title, you:you(), greedy:pk.greedy.val, dp:pk.dp.val, stars:packStars()});
+    rewardHorse(packStars(), pk.mode === "mercado" ? "El mercader" : "El Maestre");
+    if(pk.mode === "mercado") news(`Mercado: cargaste ${you()} jornadas de víveres.`, "tent", C.gold);
+    else banner("Comienza la peregrinación", `Salís de ${G.nodes[G.start].name} con ${S.viv} jornadas de víveres`, "flag");
+    backToMap();
+  }
+  function col(x, title, sel, val, c, sub){
+    const pk = P();
+    panel(x, 26, 150, 150, title, c);
+    let y = 50; [...sel].forEach(i => { const it = pk.items[i]; spr(SP[it.ic], x+7, y, 1); txFit(it.n, x+21, y-1, 122 - mw(`${it.p}kg·${it.v}`, 12) - 18, C.parchL, 12); tx(`${it.p}kg·${it.v}`, x+143, y-1, C.muted, 12, {al:"right"}); y += 11; });
+    if(!sel.size) tx("(nada)", x+8, 50, C.muted, 12);
+    R(x+6, 146, 138, 1, "#5A4024");
+    tx("Total", x+8, 150, C.muted, 13); tx(`${val} jornadas`, x+143, 150, c, 13, {al:"right"});
+    if(sub) tx(sub, x+8, 162, "#C9A86A", 12);
+  }
+  function draw(t){
+    const pk = P(), y = you();
+    R(0, 0, VW, VH, "#1A110B");
+    col(10, "Vos", pk.sel, y, C.gold, pk.usedHint ? "consultaste al escudero" : "");
+    col(166, "Escudero · Greedy", pk.greedy.sel, pk.greedy.val, C.gre, "ordena por valor/peso");
+    col(322, "Maestre · PD", pk.dp.sel, pk.dp.val, C.blue, "tabla dp: siempre óptimo");
+    panel(478, 26, 158, 150, "Resultado");
+    stars(packStars(), 557, 48, 22);
+    para(y === pk.dp.val ? "Mochila perfecta. Le empataste a la programación dinámica." : `Te faltaron ${pk.dp.val - y} jornadas para el óptimo.`, 486, 76, 142, C.parchL, 13, 12);
+    para(`El escudero se quedó ${pk.dp.val - pk.greedy.val} jornadas abajo: el greedy no sirve para la mochila 0/1.`, 486, 104, 142, "#F0C47A", 12, 11);
+    if(!pk.applied){ sprC(SP.horseIcon, 493, 154, 1); para(rewardPreview(packStars()), 500, 148, 130, C.green, 12, 11); }
+    panel(10, 180, 626, 112, "Tabla dp   T[i][c] = max( T[i-1][c] , T[i-1][c-peso] + valor )", C.blue);
+    const T = pk.dp.T, n = T.length, cap = pk.cap, cs = Math.max(3, Math.min(14, Math.floor(530/(cap+1)))), ch = Math.floor(80/n);
+    const gx = 84, gy = 202, mx = pk.dp.val || 1, path = new Set(pk.dp.cells.map(([i,c]) => i+"|"+c));
+    const shown = reduced ? 1e9 : (t - t0)/6;
+    for(let i = 0; i < n; i++){
+      tx(i ? pk.items[i-1].n.split(" ")[0] : "(nada)", 16, gy + i*ch + ch/2, i && pk.dp.sel.has(i-1) ? C.gold : C.muted, 12, {bl:"middle"});
+      for(let c = 0; c <= cap; c++){
+        if(i*(cap+1) + c > shown) continue;
+        const v = T[i][c], k = v/mx, onP = path.has(i+"|"+c);
+        R(gx + c*cs, gy + i*ch, cs-1, ch-1, onP ? C.red : `rgb(${30+k*170|0},${24+k*140|0},${16+k*40|0})`);
+      }
+    }
+    tx("capacidad 0 → " + cap + " kg", gx, gy + n*ch + 1, C.muted, 12);
+    tx("rojo: reconstrucción del camino", gx + 200, gy + n*ch + 1, "#D86A5A", 12);
+    topBar("Veredicto del Maestre", "· " + pk.title);
+    bottomBar();
+    txFit(pk.applied ? `Con esta mochila sumaste ${y} jornadas de víveres.` : `Vas a sumar ${y} jornadas de víveres. Cada tramo del mapa consume sus jornadas.`, 8, 304, 624, C.parch, 13);
+    tx("Greedy: O(n log n) pero sin garantía. PD: O(n · capacidad) y siempre da el óptimo.", 8, 320, C.muted, 13);
+    btn(VW - 214, 330, 204, 24, pk.applied ? "Volver al mapa (Enter)" : pk.mode === "mercado" ? "Seguir viaje (Enter)" : "Emprender el viaje (Enter)", apply, {red:true, sz:15});
+    if(!pk.applied) btn(VW - 364, 330, 140, 24, "Volver a la mochila", () => go("mochila"), {sz:14});
+  }
+  return {enter, draw, noEsc:() => !S.pack.applied && S.pack.mode === "mercado", key(k){ if(k === "enter") apply(); }, click(){}, move(){}};
+})();
+
+/* ============ Escena: REPARTO DE ESCOLTAS (Branch & Bound) ============ */
+const REPARTO = (function(){
+  const KN = ["Hugo de Payens", "Godofredo", "Andrés de Montbard", "Payen", "Archambaud"];
+  const TK = ["Escolta", "Patrulla", "Custodia", "Mensaje", "Hospital"];
+  const REPARTO_M = [[6,8,7,8,8], [4,7,8,2,5], [7,5,5,4,5], [3,7,9,4,9], [4,8,7,7,9]];
+  let M = null, asg = [], res = null, city = "", t0 = 0;
+  function enter(){
+    city = G.nodes[S.cur].name; asg = new Array(5).fill(-1); res = null;
+    // matriz fija y documentable: el greedy por filas da 31, el óptimo es 25
+    M = REPARTO_M.map(r => r.slice());
+    banner("Encomienda de " + city, "Carta entregada · el comendador necesita tu ayuda", "letter");
+  }
+  const total = () => asg.every(c => c >= 0) ? sum(asg.map((c,r) => M[r][c]), x => x) : null;
+  function setCell(r, c){ if(res) return; const o = asg.indexOf(c); if(o >= 0 && o !== r) asg[o] = -1; asg[r] = asg[r] === c ? -1 : c; beep([392],.04); }
+  function solve(){
+    if(res) return; res = bbAssign(M); t0 = performance.now();
+    res.you = total(); const diff = res.you === null ? null : res.you - res.best;
+    res.bonus = diff === null ? 1 : diff === 0 ? 6 : Math.max(1, 4 - diff);
+    res.stars = diff === null ? 1 : diff === 0 ? 3 : diff <= 2 ? 2 : 1;
+    beep(diff === 0 ? [523,659,784] : [392,330], .08, "triangle", .05);
+  }
+  function leave(){
+    if(!res){ solve(); return; }
+    S.viv += res.bonus; S.bbDone = true; rewardHorse(res.stars, "El comendador");
+    S.bb = {you:res.you, opt:res.best, explored:res.explored, pruned:res.pruned, brute:res.brute};
+    news(`El comendador de ${city} te da ${res.bonus} jornadas de víveres por el reparto.`, "shield", C.gold);
+    backToMap();
+  }
+  function draw(t){
+    R(0, 0, VW, VH, "#1A110B");
+    panel(6, 26, 400, 266, "", C.red); R(8, 28, 396, 16, C.woodT); R(8, 44, 396, 1, C.red); txFit("Encomienda de " + city, 14, 29, 380, C.gold, 15, {f:FT});
+    para("El comendador recibe tu carta y te pide un favor: asigná una tarea distinta a cada caballero. Cada número son las jornadas que le lleva. Minimizá el total.", 14, 50, 384, C.parch, 13, 13);
+    const x0 = 118, y0 = 98, cw = 56, chh = 30;
+    TK.forEach((k,c) => tx(k, x0 + c*cw + (cw-4)/2, y0 - 13, C.gold, 13, {al:"center"}));
+    KN.forEach((name, r) => {
+      txFit(name, 14, y0 + r*chh + 13, 98, asg[r] >= 0 ? C.parchL : C.muted, 13, {bl:"middle"});
+      TK.forEach((_, c) => {
+        const x = x0 + c*cw, y = y0 + r*chh, mine = asg[r] === c, opt = res && res.bestA[r] === c;
+        const hov = !res && over(x, y, cw-4, chh-4);
+        frame(x, y, cw-4, chh-4, mine ? C.gold : hov ? "#C9A86A" : "#5A4024", mine ? "#6A4A18" : "#2A1C12");
+        tx(String(M[r][c]), x + (cw-4)/2, y + (chh-4)/2 + 1, mine ? C.parchL : C.parch, 22, {al:"center", bl:"middle"});
+        if(opt){ ctx.strokeStyle = C.blue; ctx.lineWidth = 2; ctx.strokeRect(x-1.5, y-1.5, cw-1, chh-1); }
+        if(!res) hit(x, y, cw-4, chh-4, () => setCell(r, c));
+      });
+    });
+    const tt = total();
+    tx("Tu total", 14, 252, C.muted, 12); tx(tt === null ? "–" : tt + " jornadas", 14, 264, C.gold, 18);
+    if(res){ tx("Óptimo B&B", 140, 252, C.muted, 12); tx(res.best + " jornadas", 140, 264, C.blue, 18);
+      tx("recuadro azul: reparto óptimo", 266, 268, C.blue, 12); }
+    panel(410, 26, 226, 266, "Ramificación y poda", C.blue);
+    if(!res){
+      let y = 50;
+      y += para("Cota inferior de cada rama = jornadas ya asignadas + para cada caballero sin tarea, su tarea libre más barata.", 418, y, 210, C.parchL, 13, 12) + 8;
+      y += para("Es optimista: ignora que dos caballeros pueden querer la misma tarea, así que nunca supera al costo real.", 418, y, 210, "#F0C47A", 13, 12) + 8;
+      y += para("Si la cota de una rama ya iguala o pasa la mejor solución conocida, esa rama se poda sin explorarla.", 418, y, 210, C.muted, 13, 12) + 8;
+      para("La primera cota superior sale del greedy: cada caballero toma su tarea libre más barata.", 418, y, 210, C.muted, 13, 12);
+      btn(418, 240, 210, 22, "Resolver con B&B (Enter)", solve, {red:true, sz:14});
+      btn(418, 266, 210, 18, "Limpiar (L)", () => asg.fill(-1), {disabled:asg.every(c => c < 0)});
+    } else {
+      const row = (a, b, c, y) => { tx(a, 418, y, C.muted, 13); tx(String(b), 628, y, c, 13, {al:"right"}); };
+      row("Nodos explorados", res.explored, C.parchL, 48); row("Ramas podadas", res.pruned, C.red, 60);
+      row("Fuerza bruta (árbol entero)", res.brute, C.parchL, 72); row("Cota inicial (greedy)", res.initUB + " j", C.gre, 84);
+      const mxE = Math.max(...res.lvlE, ...res.lvlP, 1), k = reduced ? 1 : clamp((t - t0)/900, 0, 1);
+      tx("Por nivel del árbol", 418, 100, C.gold, 13);
+      for(let l = 1; l <= 5; l++){ const y = 114 + (l-1)*15;
+        tx("N" + l, 418, y + 4, C.muted, 12, {bl:"middle"});
+        R(434, y, 150*res.lvlE[l]/mxE*k, 5, C.gold); R(434, y + 6, 150*res.lvlP[l]/mxE*k, 4, C.red);
+        tx(`${res.lvlE[l]}/${res.lvlP[l]}`, 628, y + 4, C.parch, 12, {al:"right", bl:"middle"}); }
+      tx("amarillo: explorados · rojo: podados", 418, 190, C.muted, 12);
+      stars(res.stars, 523, 194, 16);
+      para(res.you === null ? "No completaste el reparto: el comendador igual te ayuda un poco." :
+           res.you === res.best ? "Reparto perfecto: igualaste a Branch & Bound." : `Tu reparto costó ${res.you - res.best} jornadas más que el óptimo.`, 418, 214, 210, C.parchL, 13, 12);
+      txFit(`Recompensa: +${res.bonus} víveres`, 418, 240, 210, C.gold, 14);
+      sprC(SP.horseIcon, 423, 257, 1); txFit(rewardPreview(res.stars), 430, 252, 200, C.green, 12);
+      btn(418, 266, 210, 22, "Seguir viaje (Enter)", leave, {red:true, sz:15});
+    }
+    topBar("Reparto de escoltas", "· Branch & Bound");
+    bottomBar();
+    tx(res ? `B&B exploró ${res.explored} nodos de ${res.brute} posibles: podó el ${Math.round(100 - 100*res.explored/res.brute)}% del árbol.` :
+             "Clic en una celda para asignar ese caballero a esa tarea. Una tarea por caballero.", 8, 306, C.parch, 13);
+    tx("Cuanto más cerca del óptimo, más víveres te da el comendador.", 8, 322, C.muted, 13);
+  }
+  return {enter, draw, noEsc:() => true, key(k){ if(k === "enter") (res ? leave : solve)(); else if(k === "l" && !res) asg.fill(-1); }, click(){}, move(){}};
+})();
+
+/* ============ Mapa: pergamino enrollado con la geografía real ============ */
+// costas en [longitud, latitud] reales, simplificadas
+const MED_SEA = [
+  [-3,37.6],[-0.8,37.6],[0.0,38.8],[-0.3,39.5],[0.9,40.8],[2.2,41.4],[3.2,42.0],[3.1,43.0],[4.0,43.5],[4.8,43.4],[5.4,43.2],[6.2,43.1],
+  [7.3,43.7],[8.2,43.9],[8.9,44.4],[9.8,44.1],[10.3,43.5],[11.0,42.5],[12.0,41.8],[13.0,41.2],[14.2,40.8],[15.0,40.2],[15.6,40.0],
+  [16.0,38.9],[15.7,38.0],[16.1,38.0],[16.6,38.4],[17.1,39.0],[17.2,39.4],[16.6,39.7],[16.9,40.4],[17.9,40.6],[18.5,40.1],[18.4,40.3],
+  [17.5,40.8],[16.6,41.2],[15.9,41.6],[16.1,41.9],[14.9,42.1],[14.0,42.7],[13.6,43.6],[12.6,44.1],[12.3,44.9],[12.4,45.4],[13.0,45.6],
+  [13.7,45.7],[13.6,45.1],[14.3,45.3],[14.9,44.7],[15.8,43.7],[16.5,43.5],[17.5,43.0],[18.1,42.6],[18.7,42.4],[19.4,41.9],[19.5,41.3],
+  [19.4,40.4],[20.0,39.7],[20.7,39.0],[21.1,38.3],[21.6,37.5],[21.7,36.8],[22.5,36.4],[23.1,36.5],[23.0,37.3],[23.2,37.9],[23.7,37.9],
+  [24.0,37.7],[24.1,38.2],[23.4,38.6],[22.8,39.3],[23.3,39.4],[22.9,40.1],[22.9,40.6],[23.7,40.2],[24.4,40.9],[25.6,40.9],[26.0,40.7],
+  [26.3,40.1],[27.5,40.4],[28.9,40.9],[29.2,40.8],[29.4,40.4],[28.0,40.3],[26.6,40.0],[26.2,39.6],[26.8,38.6],[27.2,38.4],[26.4,38.2],
+  [27.3,37.5],[27.3,36.9],[28.1,36.8],[29.1,36.6],[30.6,36.8],[31.4,36.7],[32.5,36.1],[33.6,36.2],[34.6,36.8],[35.6,36.6],[36.2,36.6],
+  [35.9,36.0],[35.8,35.2],[35.9,34.6],[35.6,33.9],[35.2,33.0],[34.9,32.4],[34.5,31.5],[34.2,31.3],[32.3,31.2],[31.0,31.6],[29.9,31.2],
+  [25.0,31.6],[23.2,32.2],[20.1,32.0],[19.0,30.3],[15.6,31.2],[13.2,32.9],[11.1,33.2],[10.2,34.0],[11.1,35.2],[10.4,36.8],[9.9,37.3],
+  [8.6,36.9],[7.0,37.1],[5.0,36.8],[3.0,36.8],[1.2,36.5],[0.0,35.9],[-3,35.2]
+];
+const BLACK_SEA = [[28.0,41.6],[28.6,43.4],[29.6,45.1],[30.7,46.5],[31.8,46.6],[33.5,46.0],[35.4,45.3],[36.6,45.4],[38.0,47.0],[39.5,47.2],
+  [39.7,46.5],[38.0,45.0],[41,44.6],[41,41.2],[38.5,40.9],[36.5,41.3],[35.0,42.0],[33.3,42.0],[31.5,41.2],[29.2,41.2]];
+const ISLANDS = [
+  [[12.4,38.1],[13.3,38.2],[14.5,38.0],[15.6,38.3],[15.1,37.3],[15.2,36.7],[14.3,37.0],[12.6,37.6]],                 // Sicilia
+  [[8.4,40.9],[9.2,41.2],[9.8,40.9],[9.7,39.6],[9.0,39.1],[8.4,39.0],[8.5,39.9]],                                    // Cerdeña
+  [[8.7,42.5],[9.4,43.0],[9.5,42.0],[9.2,41.4],[8.8,41.6],[8.6,42.0]],                                               // Córcega
+  [[23.5,35.5],[24.3,35.4],[25.5,35.3],[26.3,35.2],[26.0,35.0],[24.7,35.0],[23.6,35.2]],                             // Creta
+  [[32.3,34.9],[32.4,35.1],[33.0,35.4],[34.1,35.5],[34.6,35.7],[33.9,35.1],[34.0,34.9],[33.0,34.6],[32.6,34.7]],      // Chipre
+  [[27.7,36.1],[28.0,36.5],[28.3,36.4],[28.1,35.9]],                                                                  // Rodas
+  [[2.4,39.6],[3.1,39.95],[3.45,39.7],[3.0,39.3]], [[3.8,40.0],[4.3,40.05],[4.2,39.8]],                               // Baleares
+  [[22.8,38.7],[23.6,38.6],[24.6,38.0],[24.2,38.3],[23.2,38.9]]                                                       // Eubea
+];
+// relieve: [tipo, lon0, lon1, lat0, lat1, cantidad]
+const RELIEF = [
+  ["mont", 0, 3, 42.4, 43, 6], ["mont", 6, 13.5, 45.7, 47.2, 16], ["mont", 2.5, 4, 44.8, 45.8, 4], ["mont", 11, 15.5, 41.5, 43.8, 8],
+  ["mont", 16, 22, 42.2, 44.8, 12], ["mont", 20.8, 22.4, 39, 40.6, 5], ["mont", 30, 36, 37, 37.9, 11], ["mont", 30, 39, 38.6, 40.4, 8],
+  ["mont", 35.9, 36.6, 33.6, 34.8, 3], ["mont", 4, 9, 34.6, 35.8, 6], ["mont", 37, 40, 35.5, 37.5, 5],
+  ["tree", 0, 6, 46.2, 49.6, 16], ["tree", 7, 20, 47.3, 49.6, 16], ["tree", 18, 27, 44.2, 46.6, 10], ["tree", 22, 26, 41.4, 42.6, 5],
+  ["palm", 34.6, 36, 31, 32.8, 4], ["palm", 25, 33, 30, 31.1, 8], ["palm", 9, 14, 31, 33.2, 6], ["palm", 36.5, 39, 32.5, 34.5, 4]
+];
+const REGIONS = [["Hispania",-0.3,39.4], ["Gallia",0.6,45.4], ["Italia",15.6,42.6], ["Graecia",21.3,41.9], ["Anatolia",33,39.6],
+  ["Syria",38.6,32.9], ["Africa",15,30.4], ["Pontus Euxinus",34.6,43.6], ["Mare Mediterraneum",18.5,34.4], ["Mare Aegaeum",25.6,38.9]];
+
+let PARCH = null, FOG = null, FOGBASE = null, ROLLS = null, SHEET = null, SEAS = null;
+const SEA_GLINTS = [];
+function hiCanvas(){ const c = document.createElement("canvas"); c.width = VW*DPR; c.height = VH*DPR; const g = c.getContext("2d"); g.setTransform(DPR, 0, 0, DPR, 0, 0); return [c, g]; }
+// suaviza el contorno (Chaikin) para que la costa parezca dibujada a mano
+function chaikin(pts, it){ for(let n = 0; n < it; n++){ const out = [];
+  for(let i = 0; i < pts.length; i++){ const a = pts[i], b = pts[(i+1) % pts.length]; out.push([a[0]*.75 + b[0]*.25, a[1]*.75 + b[1]*.25], [a[0]*.25 + b[0]*.75, a[1]*.25 + b[1]*.75]); }
+  pts = out; } return pts; }
+function geoPath(ll){ const p = new Path2D(); chaikin(ll.map(([lon, lat]) => geo(lon, lat)), 2).forEach(([x, y], k) => k ? p.lineTo(x, y) : p.moveTo(x, y)); p.closePath(); return p; }
+function sheetPath(){
+  const p = new Path2D(), top = [], bot = [];
+  for(let x = 30; x <= 610; x += 6){ top.push([x, 40 + Math.sin(x*.09)*1.4 + Math.sin(x*.023)*2 + (hashN(x, 1) - .5)*1.6]); bot.push([x, 322 + Math.sin(x*.07)*1.6 + Math.sin(x*.031)*2 + (hashN(x, 2) - .5)*1.6]); }
+  top.forEach(([x, y], k) => k ? p.lineTo(x, y) : p.moveTo(x, y));
+  bot.reverse().forEach(([x, y]) => p.lineTo(x, y)); p.closePath(); return p;
+}
+function hashN(a, b){ const v = Math.sin(a*12.9898 + b*78.233)*43758.5453; return v - Math.floor(v); }
+function glyph(g, kind, x, y, s){
+  g.lineWidth = .8; g.strokeStyle = "rgba(86,56,26,.8)";
+  if(kind === "mont"){
+    g.fillStyle = "rgba(86,56,26,.16)"; g.beginPath(); g.moveTo(x, y - 6*s); g.lineTo(x + 5*s, y); g.lineTo(x, y); g.fill();
+    g.beginPath(); g.moveTo(x - 5*s, y); g.lineTo(x, y - 6*s); g.lineTo(x + 5*s, y); g.stroke();
+    g.beginPath(); for(let k = 1; k <= 3; k++){ g.moveTo(x + k*1.1*s, y - (6 - k*1.5)*s); g.lineTo(x + k*.6*s, y); } g.stroke();
+  } else if(kind === "tree"){
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - 3*s); g.stroke();
+    g.fillStyle = "rgba(86,56,26,.14)"; g.beginPath(); g.arc(x, y - 5*s, 2.6*s, 0, 6.283); g.fill(); g.stroke();
+  } else {
+    g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + .8*s, y - 3*s, x + .3*s, y - 6*s); g.stroke();
+    g.beginPath(); [[-3,-5],[3,-5],[-2.5,-7.5],[2.5,-7.5]].forEach(([dx, dy]) => { g.moveTo(x + .3*s, y - 6*s); g.quadraticCurveTo(x + dx*s*.5, y + (dy - 1)*s, x + dx*s, y + (dy + 1.5)*s); }); g.stroke();
+  }
+}
+function compass(g, x, y, r){
+  g.save(); g.translate(x, y); g.strokeStyle = "rgba(86,56,26,.85)"; g.lineWidth = .8;
+  g.beginPath(); g.arc(0, 0, r*.55, 0, 6.283); g.stroke(); g.beginPath(); g.arc(0, 0, r*.62, 0, 6.283); g.stroke();
+  for(let k = 0; k < 16; k++){ const a = k*Math.PI/8, L = k % 4 === 0 ? r : k % 2 === 0 ? r*.6 : r*.4, w = k % 4 === 0 ? r*.14 : r*.08;
+    const ca = Math.cos(a - Math.PI/2), sa = Math.sin(a - Math.PI/2), px = -sa, py = ca;
+    g.fillStyle = k % 2 ? "rgba(86,56,26,.35)" : "rgba(86,56,26,.85)";
+    g.beginPath(); g.moveTo(ca*L, sa*L); g.lineTo(px*w, py*w); g.lineTo(-px*w, -py*w); g.closePath(); g.fill(); g.stroke(); }
+  g.fillStyle = "rgba(86,56,26,.95)"; g.font = `11px ${FT}`; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText("N", 0, -r - 6); g.fillText("S", 0, r + 6); g.fillText("E", r + 6, 0); g.fillText("O", -r - 6, 0);
+  g.restore();
+}
+function buildParchment(){
+  SHEET = sheetPath();
+  const med = geoPath(MED_SEA), black = geoPath(BLACK_SEA), isl = ISLANDS.map(geoPath);
+  SEAS = new Path2D(); SEAS.addPath(med); SEAS.addPath(black);
+  const [c, g] = hiCanvas();
+  const bg = g.createRadialGradient(VW/2, VH/2, 60, VW/2, VH/2, 420); bg.addColorStop(0, "#5E4630"); bg.addColorStop(1, "#1E140C");
+  g.fillStyle = bg; g.fillRect(0, 0, VW, VH);
+  g.save(); g.shadowColor = "rgba(0,0,0,.6)"; g.shadowBlur = 16; g.shadowOffsetY = 5; g.fillStyle = "#DCC79C"; g.fill(SHEET); g.restore();
+  g.save(); g.clip(SHEET);
+  // tierra: pergamino con manchas
+  for(let i = 0; i < 26; i++){ const x = Math.random()*VW, y = Math.random()*VH, r = 30 + Math.random()*100;
+    const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, Math.random() < .5 ? "rgba(150,110,60,.13)" : "rgba(255,245,215,.18)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = gr; g.fillRect(x-r, y-r, r*2, r*2); }
+  for(let i = 0; i < 7000; i++){ g.fillStyle = Math.random() < .5 ? "rgba(110,80,40,.10)" : "rgba(255,245,220,.12)"; g.fillRect(Math.random()*VW, Math.random()*VH, .5 + Math.random()*1.5, .5); }
+  // mar algo más frío, con líneas paralelas a la costa
+  g.fillStyle = "rgba(150,150,130,.22)"; g.fill(SEAS);
+  g.save(); g.clip(SEAS);
+  [[10, .06], [6, .07], [3, .09]].forEach(([lw, a]) => { g.lineWidth = lw; g.strokeStyle = `rgba(90,62,30,${a})`; g.stroke(SEAS); isl.forEach(p => g.stroke(p)); });
+  g.strokeStyle = "rgba(90,62,30,.28)"; g.lineWidth = .6;
+  for(let y = 50; y < 320; y += 13) for(let x = 40; x < 600; x += 19){ const jx = x + (hashN(x, y) - .5)*12, jy = y + (hashN(y, x) - .5)*7;
+    if(!g.isPointInPath(SEAS, jx*DPR, jy*DPR) || isl.some(p => g.isPointInPath(p, jx*DPR, jy*DPR)) || hashN(jx, jy) < .45) continue;
+    g.beginPath(); g.arc(jx - 2, jy, 2, Math.PI*1.1, Math.PI*1.9); g.arc(jx + 2, jy, 2, Math.PI*1.1, Math.PI*1.9); g.stroke();
+    if(SEA_GLINTS.length < 140) SEA_GLINTS.push([jx + 5, jy - 3]); }
+  g.restore();
+  g.fillStyle = "#DCC79C"; isl.forEach(p => g.fill(p));
+  // costas en tinta (doble trazo, como en las cartas antiguas)
+  g.lineJoin = "round"; g.strokeStyle = "rgba(90,58,28,.35)"; g.lineWidth = 2.2; g.stroke(SEAS); isl.forEach(p => g.stroke(p));
+  g.strokeStyle = "#5A3A1E"; g.lineWidth = 1; g.stroke(SEAS); isl.forEach(p => g.stroke(p));
+  // punteado del desierto y relieve
+  for(let i = 0; i < 900; i++){ const lon = -1 + Math.random()*42, lat = 29 + Math.random()*3.3, [x, y] = geo(lon, lat);
+    if(g.isPointInPath(SEAS, x*DPR, y*DPR)) continue; g.fillStyle = "rgba(110,76,36,.35)"; g.fillRect(x, y, .7, .7); }
+  RELIEF.forEach(([kind, l0, l1, a0, a1, n]) => { let placed = 0, guard = 0;
+    while(placed < n && guard++ < 200){ const lon = l0 + Math.random()*(l1 - l0), lat = a0 + Math.random()*(a1 - a0), [x, y] = geo(lon, lat);
+      if(g.isPointInPath(SEAS, x*DPR, y*DPR) && !isl.some(p => g.isPointInPath(p, x*DPR, y*DPR))) continue;
+      glyph(g, kind, x, y, kind === "mont" ? .9 + Math.random()*.5 : .8 + Math.random()*.3); placed++; } });
+  compass(g, 584, 84, 22);
+  // bordes quemados del pergamino
+  g.strokeStyle = "rgba(120,80,30,.22)"; g.lineWidth = 18; g.stroke(SHEET);
+  g.strokeStyle = "rgba(90,55,20,.35)"; g.lineWidth = 5; g.stroke(SHEET);
+  g.restore();
+  PARCH = c;
+  // rodillos del pergamino
+  const [rc, rg] = hiCanvas();
+  [[12, 30], [604, 30]].forEach(([x, y]) => { const w = 24, h = 300;
+    const gr = rg.createLinearGradient(x, 0, x + w, 0); gr.addColorStop(0, "#8A6A3E"); gr.addColorStop(.35, "#F0DFB4"); gr.addColorStop(.6, "#D2B888"); gr.addColorStop(1, "#6A4E2A");
+    rg.save(); rg.shadowColor = "rgba(0,0,0,.55)"; rg.shadowBlur = 10; rg.shadowOffsetY = 4; rg.fillStyle = gr; rg.fillRect(x, y + 4, w, h - 8); rg.restore();
+    rg.fillStyle = gr; rg.fillRect(x, y + 4, w, h - 8);
+    [[y + 4, 1], [y + h - 4, -1]].forEach(([cy]) => { rg.fillStyle = "#C9AE7E"; rg.beginPath(); rg.ellipse(x + w/2, cy, w/2, 4.5, 0, 0, 6.283); rg.fill();
+      rg.strokeStyle = "#6A4E2A"; rg.lineWidth = .8; rg.stroke();
+      rg.beginPath(); rg.ellipse(x + w/2, cy, w/4, 2.2, 0, 0, 6.283); rg.stroke(); rg.beginPath(); rg.ellipse(x + w/2, cy, w/8, 1, 0, 0, 6.283); rg.stroke(); });
+    rg.strokeStyle = "rgba(90,60,30,.35)"; rg.lineWidth = .6; for(let k = 0; k < 14; k++){ const yy = y + 20 + k*20; rg.beginPath(); rg.moveTo(x + 2, yy); rg.lineTo(x + w - 2, yy + 1.5); rg.stroke(); } });
+  ROLLS = rc;
+  // niebla: solo sobre el pergamino, deja ver un poco la costa
+  [FOG] = hiCanvas();
+  const [fb, fg] = hiCanvas();
+  fg.save(); fg.clip(SHEET);
+  fg.fillStyle = "rgba(62,44,26,.74)"; fg.fillRect(0, 0, VW, VH);
+  for(let i = 0; i < 80; i++){ const x = Math.random()*VW, y = Math.random()*VH, r = 20 + Math.random()*60;
+    const gr = fg.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, Math.random() < .5 ? "rgba(170,150,120,.22)" : "rgba(25,16,8,.28)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+    fg.fillStyle = gr; fg.fillRect(x-r, y-r, r*2, r*2); }
+  fg.restore();
+  FOGBASE = fb;
+}
+function drawFog(){
+  const g = FOG.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = "source-over"; g.clearRect(0, 0, FOG.width, FOG.height); g.drawImage(FOGBASE, 0, 0);
+  g.setTransform(DPR, 0, 0, DPR, 0, 0); g.globalCompositeOperation = "destination-out"; g.lineCap = "round";
+  [[44, .25], [32, .4], [22, 1]].forEach(([lw, a]) => { g.lineWidth = lw; g.strokeStyle = `rgba(0,0,0,${a})`;
+    S.knownE.forEach(ei => { const e = G.edges[ei], A = G.nodes[e.a], B = G.nodes[e.b]; g.beginPath(); g.moveTo(A.x, A.y); g.lineTo(B.x, B.y); g.stroke(); }); });
+  S.knownN.forEach(i => { const n = G.nodes[i], gr = g.createRadialGradient(n.x, n.y, 16, n.x, n.y, 44);
+    gr.addColorStop(0, "rgba(0,0,0,1)"); gr.addColorStop(1, "rgba(0,0,0,0)"); g.fillStyle = gr; g.fillRect(n.x-44, n.y-44, 88, 88); });
+  g.globalCompositeOperation = "source-over";
+  ctx.drawImage(FOG, 0, 0, VW, VH);
+}
+function drawRegions(){
+  REGIONS.forEach(([name, lon, lat]) => { const [x, y] = geo(lon, lat), sea = name.startsWith("Mare") || name.startsWith("Pontus");
+    tx(name, x, y, sea ? "rgba(60,80,100,.42)" : "rgba(90,58,28,.42)", sea ? 15 : 17, {f:FT, al:"center", bl:"middle"}); });
+}
+function nodeAt(x, y, toScreen){ let b = null, bd = 1e9;
+  G.nodes.forEach(n => { if(!S.knownN.has(n.i)) return; const [sx, sy] = toScreen ? toScreen(n.x, n.y) : [n.x, n.y], d = Math.hypot(sx - x, sy - y); if(d < 15 && d < bd){ bd = d; b = n.i; } }); return b; }
+
+/* ============ Escena: MAPA ============ */
+const MAPA = (function(){
+  let hov = null, msg = "", trans = null, pop = null;
+  const here = () => S.cur;
+  const opts = () => G.adj[here()];
+  function enter(){ hov = null; trans = null; pop = null; if(!PARCH) buildParchment(); layoutKey = ""; focusHere(); }
+  function move(v){
+    if(trans || S.over) return;
+    const o = opts().find(n => n.v === v);
+    if(!o){ const bl = G.ek[here()+"|"+v]; toast(bl && bl.blocked ? `El paso entre ${G.nodes[here()].name} y ${G.nodes[v].name} está bloqueado.` :
+      `No hay camino directo entre ${G.nodes[here()].name} y ${G.nodes[v].name}.`, {col:C.red}); beep([140,100],.09,"sawtooth",.04); return; }
+    if(o.e.w > S.viv){ toast(`Te faltan ${o.e.w - S.viv} jornadas de víveres para llegar a ${G.nodes[v].name}.`, {col:C.red, icon:"pan"}); beep([140,100],.09,"sawtooth",.04); return; }
+    const snap = document.createElement("canvas"); snap.width = cv.width; snap.height = cv.height; snap.getContext("2d").drawImage(cv, 0, 0);
+    const [ax, ay] = w2s(G.nodes[here()].x, G.nodes[here()].y), [bx, by] = w2s(G.nodes[v].x, G.nodes[v].y);
+    trans = {t0:performance.now(), snap, cx:clamp((ax*2 + bx)/3, 1, VW - 1), cy:clamp((ay*2 + by)/3, 1, VH - 1), to:v, e:o.e};
+    beep([262,330,392],.06,"triangle",.05);
+  }
+  const pathCost = p => p.reduce((s,v,i) => i ? s + G.ek[p[i-1]+"|"+v].w : s, 0);
+  function useRelic(slot){
+    const id = S.inv[slot]; if(!id || trans || S.over) return;
+    S.inv.splice(slot, 1); pop = null;
+    const g = G, cur = here(), goal = g.goal, info = RELIC[id];
+    const ov = {kind:id, col:info.col, path:null, edges:new Set(), info:"", title:info.name};
+    if(id === "dijkstra"){ const D = dijkstra(g, cur); ov.path = pathFrom(D.prev, cur, goal); revealPath(ov.path);
+      ov.info = `Dijkstra (con heap): ${D.dist[goal]} jornadas en ${ov.path.length-1} tramos. Fijó ${D.order.length} ciudades de menor a mayor distancia.`; }
+    else if(id === "bfs"){ const B = bfs(g, cur); ov.path = pathFrom(B.prev, cur, goal); revealPath(ov.path);
+      S.badges = {col:C.bfs, map:{}}; B.order.forEach(u => { if(B.lvl[u] <= 2) see(u); if(B.lvl[u] >= 1 && B.lvl[u] <= 3) S.badges.map[u] = "N" + B.lvl[u]; });
+      B.order.forEach(u => { if(B.prev[u] !== undefined && B.lvl[u] <= 3) ov.edges.add(g.ek[B.prev[u]+"|"+u].i); });
+      ov.info = `BFS (cola): descubrió 3 niveles a la redonda. A Jerusalén hay ${B.lvl[goal]} etapas, pero ${pathCost(ov.path)} jornadas.`; }
+    else if(id === "dfs"){ const F = dfs(g, cur); ov.path = pathFrom(F.prev, cur, goal); ov.path.forEach(u => see(u));
+      ov.info = `DFS (recursión): iluminó un pasillo de ${ov.path.length-1} tramos y ${pathCost(ov.path)} jornadas. Llega, sin garantía de nada.`; }
+    else if(id === "greedy"){ ov.path = greedyWalk(g, cur, goal); revealPath(ov.path); const okk = ov.path[ov.path.length-1] === goal;
+      ov.info = okk ? `Greedy: siempre el tramo más barato. Llega con ${pathCost(ov.path)} jornadas.` : `Greedy: se encerró en ${g.nodes[ov.path[ov.path.length-1]].name}. Elegir lo mejor local no alcanza.`; }
+    else if(id === "floyd"){ const F = floyd(g); g.nodes.forEach(n => S.knownN.add(n.i));
+      S.badges = {col:C.flo, map:{}}; g.nodes.forEach(n => S.badges.map[n.i] = String(F.d[n.i][goal]));
+      let pops = 0, relax = 0; g.nodes.forEach(n => { const D = dijkstra(g, n.i); pops += D.pops; relax += D.relax; });
+      ov.info = `Floyd-Warshall O(V³): ${F.relax} relajaciones${F.negCycle ? ", ¡hay ciclo negativo!" : ", sin ciclos negativos"}. Dijkstra ×20 O(V·E log V): ${relax} relajaciones y ${pops} extracciones del heap.`; }
+    else if(id === "kruskal"){ const Kr = kruskal(g); Kr.edges.forEach(ei => S.calz.add(ei)); recompute(); revealEdges(Kr.edges);
+      ov.edges = new Set(Kr.edges); ov.info = `Kruskal (union-find): ${Kr.edges.length} tramos empedrados, peso total ${Kr.total}. Ahora cada uno cuesta 1 jornada menos.`; }
+    else if(id === "prim"){ const Pp = prim(g, cur, 6); Pp.nodes.forEach(u => { if(u !== cur) S.postas.add(u); }); revealEdges(Pp.edges); ov.edges = new Set(Pp.edges);
+      ov.info = `Prim (heap): el árbol creció desde ${g.nodes[cur].name} sumando siempre la arista más barata. 5 postas nuevas.`; }
+    else if(id === "backtrack"){ const pend = new Set([...g.encom].filter(u => !S.letters.has(u)));
+      const a = backtrack(g, cur, goal, S.viv, 10, pend, true), b = backtrack(g, cur, goal, S.viv, 10, pend, false);
+      ov.path = a.best ? a.best.path : null; revealPath(ov.path);
+      ov.info = a.best ? `Backtracking: ruta con ${a.best.enc} de ${pend.size} cartas y ${a.best.cost} jornadas. Exploró ${a.explored} nodos con poda contra ${b.explored} sin poda.`
+                       : `Backtracking: con tus víveres no hay ruta simple a Jerusalén. Exploró ${a.explored} nodos con poda contra ${b.explored} sin poda.`; }
+    if(ov.path) ov.path.forEach((u,i) => { if(i) ov.edges.add(g.ek[ov.path[i-1]+"|"+u].i); });
+    S.overlay = ov; S.log.push(info.alg);
+    banner(info.name, info.alg, "pergamino");
+    beep([392,523,659,784],.07,"triangle",.05); puff(G.nodes[cur].x, G.nodes[cur].y, info.col); layoutKey = "";
+  }
+
+  /* ---------- cámara: zoom y desplazamiento ---------- */
+  // el pergamino, los caminos y la niebla se agrandan; ciudades, nombres, números e íconos mantienen su tamaño en pantalla
+  const cam = {z:1, tz:1, x:VW/2, y:VH/2, anchor:null};
+  const ZMIN = 1, ZMAX = 3, FAR = 1.5, VIEW = {x:34, y:36, w:572, h:292};
+  const w2s = (x, y) => [(x - cam.x)*cam.z + VW/2, (y - cam.y)*cam.z + VH/2];
+  const s2w = (x, y) => [(x - VW/2)/cam.z + cam.x, (y - VH/2)/cam.z + cam.y];
+  function clampCam(){ const hw = VW/(2*cam.z), hh = VH/(2*cam.z); cam.x = clamp(cam.x, hw, VW - hw); cam.y = clamp(cam.y, hh, VH - hh); }
+  function zoomTo(z, sx, sy){ cam.tz = clamp(z, ZMIN, ZMAX); const [wx, wy] = s2w(sx, sy); cam.anchor = {sx, sy, wx, wy}; }
+  function stepCam(){
+    if(Math.abs(cam.tz - cam.z) > .002){ cam.z += (cam.tz - cam.z)*(reduced ? 1 : .25);
+      if(cam.anchor){ cam.x = cam.anchor.wx - (cam.anchor.sx - VW/2)/cam.z; cam.y = cam.anchor.wy - (cam.anchor.sy - VH/2)/cam.z; } }
+    else { cam.z = cam.tz; cam.anchor = null; }
+    clampCam();
+  }
+  // acercarse llevando la ciudad actual al centro de la vista
+  function zoomHere(f){ const n = G.nodes[here()]; cam.tz = clamp(cam.tz*f, ZMIN, ZMAX); cam.anchor = {sx:VW/2, sy:VH/2 + 10, wx:n.x, wy:n.y}; }
+  function focusHere(){ const n = G.nodes[here()], [sx, sy] = w2s(n.x, n.y);
+    if(sx < VIEW.x + 40 || sx > VIEW.x + VIEW.w - 40 || sy < VIEW.y + 30 || sy > VIEW.y + VIEW.h - 40){ cam.x = n.x; cam.y = n.y; clampCam(); } }
+  const camLayer = () => ctx.setTransform(DPR*cam.z, 0, 0, DPR*cam.z, DPR*(VW/2 - cam.x*cam.z), DPR*(VH/2 - cam.y*cam.z));
+  const screenLayer = () => ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  /* ---------- números de jornadas: dónde va cada uno según el zoom ---------- */
+  // de lejos solo se ven los importantes (los tramos que podés tomar, lo que marca un objeto y los pasos cortados) y, si se pisan, se corren al costado.
+  // de cerca se ven todos, en su lugar natural sobre el camino.
+  let layoutKey = "", layout = {};
+  function weightsToShow(avail){
+    if(cam.z >= FAR) return [...S.knownE];
+    const ov = S.overlay, show = new Set(avail);
+    if(ov && ov.edges) ov.edges.forEach(i => { if(S.knownE.has(i)) show.add(i); });
+    S.knownE.forEach(i => { if(G.edges[i].blocked) show.add(i); });
+    return [...show];
+  }
+  function layoutWeights(show){
+    const zq = Math.round(cam.z*10)/10, key = zq + "|" + show.join(",") + "|" + S.knownN.size + "|" + here();
+    if(key === layoutKey) return; layoutKey = key; layout = {};
+    const P = (x, y) => [x*zq, y*zq], boxes = [];
+    G.nodes.forEach(n => { if(!S.knownN.has(n.i)) return; const [x, y] = P(n.x, n.y), w = mw(n.name, 13);
+      boxes.push([x - 17, y - 20, 34, 30], [x - w/2 - 4, y + 8, w + 8, 14], [x - 22, y - 21, 12, 13], [x + 8, y - 26, 26, 20], [x - 15, y - 27, 11, 13]); });
+    const placed = [], clash = (x, y) => sum(boxes, ([bx, by, bw, bh]) => Math.max(0, Math.min(x + 8, bx + bw) - Math.max(x - 8, bx))*Math.max(0, Math.min(y + 8, by + bh) - Math.max(y - 8, by))) +
+      sum(placed, ([px, py]) => Math.max(0, 17 - Math.hypot(px - x, py - y))*20);
+    const offs = zq >= 2 ? [0] : [0, 12, -12, 18, -18, 24, -24, 32, -32, 40, -40];
+    const len = e => Math.hypot(G.nodes[e.a].x - G.nodes[e.b].x, G.nodes[e.a].y - G.nodes[e.b].y);
+    mergeSort(show.map(i => G.edges[i]), (a, b) => len(a) - len(b)).forEach(e => {
+      const [ax0, ay0] = P(G.nodes[e.a].x, G.nodes[e.a].y), [bx0, by0] = P(G.nodes[e.b].x, G.nodes[e.b].y), L = Math.hypot(bx0 - ax0, by0 - ay0) || 1, nx = -(by0 - ay0)/L, ny = (bx0 - ax0)/L;
+      let best = null;
+      for(const off of offs){ for(const t of [.5, .42, .58, .35, .65, .3, .7, .25, .75]){
+        const x = ax0 + (bx0 - ax0)*t + nx*off, y = ay0 + (by0 - ay0)*t + ny*off, c = clash(x, y) + Math.abs(off)*.4 + Math.abs(t - .5)*6;
+        if(!best || c < best.c) best = {t, off, nx, ny, c, x, y}; } if(best.c < 4) break; }
+      layout[e.i] = best; placed.push([best.x, best.y]); });
+  }
+  function weightPos(e){ const L = layout[e.i], A = G.nodes[e.a], B = G.nodes[e.b];
+    const [ax, ay] = w2s(A.x + (B.x - A.x)*L.t, A.y + (B.y - A.y)*L.t); return [ax + L.nx*L.off, ay + L.ny*L.off, ax, ay, L.off !== 0]; }
+
+  function edgeLine(e, col, lw, dash, off){
+    const A = G.nodes[e.a], B = G.nodes[e.b], k = 1/Math.sqrt(cam.z);
+    ctx.strokeStyle = col; ctx.lineWidth = lw*k; ctx.setLineDash((dash || []).map(d => d*k)); ctx.lineDashOffset = (off || 0)*k;
+    ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke(); ctx.setLineDash([]);
+  }
+  function drawMapBase(t){
+    const zoomed = cam.z > 1.01;
+    if(zoomed){ ctx.drawImage(PARCH, 0, 0, VW, VH); R(0, 0, VW, VH, "rgba(20,12,6,.7)"); ctx.save(); ctx.beginPath(); ctx.rect(VIEW.x, VIEW.y, VIEW.w, VIEW.h); ctx.clip(); }
+    camLayer();
+    ctx.drawImage(PARCH, 0, 0, VW, VH);
+    if(!reduced) SEA_GLINTS.forEach(([x, y], i) => { const a = Math.sin(t/900 + i*1.7); if(a > .6){ ctx.fillStyle = `rgba(255,252,236,${(a - .6)*2})`;
+      ctx.beginPath(); ctx.moveTo(x, y - 1.6); ctx.lineTo(x + .8, y); ctx.lineTo(x, y + 1.6); ctx.lineTo(x - .8, y); ctx.fill(); ctx.fillRect(x - 2.4, y - .3, 4.8, .6); } });
+    drawRegions();
+    const avail = new Set(S.over ? [] : opts().map(o => o.e.i)), trail = new Set(S.trail), ov = S.overlay;
+    const march = reduced ? 0 : t/60;
+    ctx.lineCap = "round";
+    S.calz.forEach(ei => { if(S.knownE.has(ei)) edgeLine(G.edges[ei], "rgba(170,140,90,.75)", 6); });
+    G.edges.forEach(e => {
+      if(!S.knownE.has(e.i)) return;
+      const hovE = hov !== null && avail.has(e.i) && (e.a === hov || e.b === hov);
+      if(e.blocked){ edgeLine(e, "rgba(110,90,70,.6)", 1.2, [2, 4]); return; }
+      if(e.terr === "mar") edgeLine(e, C.sea, 1.4, [5, 3]);
+      else if(e.terr === "montana"){ edgeLine(e, C.mont, 1.4);
+        const A = G.nodes[e.a], B = G.nodes[e.b], L = Math.hypot(B.x-A.x, B.y-A.y), n = Math.floor(L/22);
+        ctx.strokeStyle = C.mont; ctx.lineWidth = 1/Math.sqrt(cam.z);
+        for(let k = 1; k < n; k++){ const p = k/n, x = A.x + (B.x-A.x)*p, y = A.y + (B.y-A.y)*p; ctx.beginPath(); ctx.moveTo(x-3, y-1); ctx.lineTo(x, y-5); ctx.lineTo(x+3, y-1); ctx.stroke(); } }
+      else edgeLine(e, C.ink2, 1.3, [3, 3]);
+      if(trail.has(e.i)) edgeLine(e, C.red, 2, [1.5, 3]);
+      if(ov && ov.edges.has(e.i)) edgeLine(e, ov.col, ov.path ? 3 : 2.4, ov.path ? [6, 4] : [], -march);
+      if(avail.has(e.i)) edgeLine(e, hovE ? C.red : "rgba(40,24,10,.85)", hovE ? 3 : 2, hovE ? [] : [6, 4], -march);
+    });
+    drawFog();
+    drawParts();
+    screenLayer();
+    if(zoomed) ctx.restore();
+    ctx.drawImage(ROLLS, 0, 0, VW, VH);
+    const inView = (x, y) => !zoomed || (x > VIEW.x - 30 && x < VIEW.x + VIEW.w + 30 && y > VIEW.y - 30 && y < VIEW.y + VIEW.h + 30);
+    if(zoomed){ ctx.save(); ctx.beginPath(); ctx.rect(VIEW.x, VIEW.y, VIEW.w, VIEW.h); ctx.clip(); }
+    { const j = G.nodes[G.goal], [jx, jy] = w2s(j.x, j.y), xc = jx + 15, yc = jy - 4; ctx.strokeStyle = C.red; ctx.lineWidth = 2.6; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(xc - 5, yc - 5); ctx.lineTo(xc + 5, yc + 5); ctx.moveTo(xc + 5, yc - 5); ctx.lineTo(xc - 5, yc + 5); ctx.stroke(); }
+    // ciudades (tamaño fijo en pantalla)
+    G.nodes.forEach(n => {
+      if(!S.knownN.has(n.i)) return;
+      const [x, y] = w2s(n.x, n.y); if(!inView(x, y)) return;
+      ctx.fillStyle = "rgba(60,36,14,.22)"; ctx.beginPath(); ctx.ellipse(x, y + 8, 12, 3, 0, 0, 6.283); ctx.fill();
+      sprC(SP[CITY_KIND[n.name] || "town2"], x, y - 3, 1.5);
+      if(S.bula && S.bula.to === n.i){ const bob = reduced ? 0 : Math.sin(t/260)*1.5; spr(SP.pergamino, x - 30, y - 22 + bob, 1.5); }
+      if(G.encom.has(n.i)){ const done = S.letters.has(n.i), lx = x + 10, ly = y - 24;
+        R(lx - 2, ly - 2, 26, 20, done ? "rgba(46,106,30,.85)" : "rgba(192,53,43,.9)"); R(lx - 1, ly - 1, 24, 18, done ? "#DCEEC8" : C.parchL);
+        ctx.globalAlpha = done ? .45 : 1; spr(SP.letter, lx, ly, 2); ctx.globalAlpha = 1;
+        if(done) tx("✓", lx + 11, ly + 8, "#2E6A1E", 18, {f:"serif", al:"center", bl:"middle"}); }
+      if(G.markets.has(n.i)){ spr(SP.tent, x+10, y-21, 2); if(S.marketsUsed.has(n.i)) R(x+10, y-21, 18, 12, "rgba(217,196,154,.65)"); }
+      if(S.postas.has(n.i) && !S.postasUsed.has(n.i)) spr(SP.posta, x-20, y-16, 2);
+      if(n.i === G.start) spr(SP.flag, x-14, y-26, 2);
+      const w = mw(n.name, 13), isHere = n.i === here();
+      R(x - w/2 - 3, y + 9, w + 6, 12, isHere ? "rgba(192,53,43,.9)" : "rgba(244,233,204,.85)");
+      tx(n.name, x, y + 10, isHere ? C.parchL : n.i === G.goal ? C.redD : C.ink, 13, {al:"center"});
+      if(S.badges && S.badges.map[n.i] !== undefined){ const b = S.badges.map[n.i], bw = mw(b, 12) + 6;
+        R(x-14-bw, y-10, bw, 11, S.badges.col); tx(b, x-14-bw/2, y-9, "#FFFFFF", 12, {al:"center"}); }
+    });
+    const show = weightsToShow(avail); layoutWeights(show);
+    drawWeights(show, avail, inView);
+    if(zoomed) ctx.restore();
+  }
+  // jornadas de los tramos visibles, siempre por encima de todo
+  function drawWeights(show, avail, inView){
+    show.forEach(i => {
+      const e = G.edges[i], [mx, my, ax, ay, lead] = weightPos(e); if(!inView(mx, my)) return;
+      const col = e.terr === "mar" ? C.sea : e.terr === "montana" ? C.mont : C.ink;
+      if(lead){ ctx.strokeStyle = avail.has(e.i) ? "rgba(40,24,10,.9)" : "rgba(60,40,20,.55)"; ctx.lineWidth = .9; ctx.setLineDash([1.5, 1.5]);
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(mx, my); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = col; ctx.beginPath(); ctx.arc(ax, ay, 1.6, 0, 6.283); ctx.fill(); }
+      if(e.blocked){ ctx.fillStyle = C.parchL; ctx.beginPath(); ctx.arc(mx, my, 6, 0, 6.283); ctx.fill(); ctx.strokeStyle = C.red; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(mx-3, my-3); ctx.lineTo(mx+3, my+3); ctx.moveTo(mx+3, my-3); ctx.lineTo(mx-3, my+3); ctx.stroke(); return; }
+      const up = e.w > e.base, down = e.w < e.base, hot = avail.has(e.i);
+      ctx.fillStyle = up ? "#F6D6CC" : down ? "#DCEEC8" : C.parchL; ctx.beginPath(); ctx.arc(mx, my, hot ? 7.5 : 6.5, 0, 6.283); ctx.fill();
+      ctx.strokeStyle = hot ? "#2A1608" : col; ctx.lineWidth = hot ? 1.6 : 1; ctx.stroke();
+      tx(String(e.w), mx, my + 1, up ? C.red : down ? "#2E6A1E" : C.ink, hot ? 14 : 13, {al:"center", bl:"middle"});
+    });
+  }
+  // controles de zoom sobre el rodillo derecho
+  function zoomControls(){
+    const x = 606, y = 112;
+    btn(x, y, 20, 20, "+", () => zoomHere(1.35), {sz:16, disabled:cam.tz >= ZMAX - .01});
+    btn(x, y + 23, 20, 20, "−", () => zoomTo(cam.tz/1.35, VW/2, VH/2), {sz:16, disabled:cam.tz <= ZMIN + .01});
+    btn(x, y + 46, 20, 20, "1:1", () => zoomTo(1, VW/2, VH/2), {sz:10, disabled:cam.tz <= ZMIN + .01});
+    tx(`${Math.round(cam.z*100)}%`, x + 10, y + 70, C.ink, 11, {al:"center"});
+  }
+  function hud(t){
+    R(6, 5, 628, 30, "#000000"); R(7, 6, 626, 28, "#B8925A"); R(8, 7, 624, 26, "#EADBB4"); R(8, 30, 624, 3, "#D9C49A");
+    let x = 14;
+    const chip = (icon, val, label, col, w) => { sprC(SP[icon], x + 9, 20, 2); tx(String(val), x + 22, 6, col || C.ink, 20); tx(label, x + 22 + mw(String(val), 20) + 3, 15, C.ink2, 12); x += w; };
+    const lc = S.viv > 10 ? "#2E6A1E" : S.viv > 4 ? "#9A6A10" : C.red;
+    chip("pan", S.viv, "víveres", lc, 94);
+    chip("hourglass", S.used, "jornadas", C.ink, 90);
+    chip("espada", S.def, "def.", C.ink, 58);
+    chip("cruz", S.fe, "fe", C.ink, 52);
+    { const st = horseStage(S.horse); sprC(SP.horseIcon, x + 9, 20, 2);
+      tx(S.horse.criollo ? "criollo" : st, x + 22, 7, st === "viejo" ? C.red : st === "adulto" ? C.ink : "#2E6A1E", 15, {f:FT});
+      if(!S.horse.criollo) tx(`${S.horse.age} años`, x + 22, 21, C.ink2, 11);
+      if(over(x, 7, 84, 26)) hudTip = `Caballo ${horseLabel(S.horse)}: ${STAGE_INFO[st]}.`; x += 86; }
+    const se = SEASONS[S.season], left = SEASON_LEN - S.used % SEASON_LEN;
+    sprC(SP[SEASON_ICON[S.season]], x + 9, 20, 2); tx(se.n, x + 22, 8, se.c, 16, {f:FT}); tx(`${left} j`, x + 26 + mw(se.n, 16, FT), 15, C.ink2, 12);
+    if(over(x, 7, 100, 26)) hudTip = `${se.n}: ${se.d}. Cambia en ${left} jornadas.`;
+    x += 104;
+    [...G.encom].forEach((u, k) => { const done = S.letters.has(u); ctx.globalAlpha = done ? 1 : .35; sprC(SP.letter, x + 10 + k*24, 20, 2); ctx.globalAlpha = 1;
+      if(done) tx("✓", x + 16 + k*24, 22, "#2E6A1E", 14, {f:"serif"}); });
+    if(over(x, 7, 72, 26)) hudTip = `Cartas entregadas: ${S.letters.size} de 3. En el mapa, las encomiendas tienen este mismo sobre.`;
+
+  }
+  let hudTip = null;
+  function tooltip(id){
+    const n = G.nodes[id], o = opts().find(x => x.v === id), pend = 3 - S.letters.size, lines = [];
+    if(id === G.goal) lines.push([pend ? `Destino final · te faltan ${pend} cartas` : "Destino final", C.redD]);
+    if(G.encom.has(id)) lines.push([S.letters.has(id) ? "Encomienda · carta entregada" : "Encomienda · entregá una carta (+3 víveres)", C.ink]);
+    if(G.markets.has(id)) lines.push([S.marketsUsed.has(id) ? "Mercado · ya visitado" : "Mercado · rearmá la mochila", C.ink]);
+    if(S.postas.has(id) && !S.postasUsed.has(id)) lines.push(["Posta templaria · +2 víveres", C.pri]);
+    if(S.bula && S.bula.to === id) lines.push(["Bula del Papa · entregala acá (+3 víveres)", C.redD]);
+    if(id === here()) lines.push(["Estás acá", C.red]);
+    else if(o){ const k = opts().indexOf(o) + 1;
+      lines.push([`${o.e.w} jornadas por ${TERR[o.e.terr].l}${o.e.w > S.viv ? " · no te alcanzan los víveres" : ` · clic o tecla ${k} para viajar`}`, o.e.w > S.viv ? C.red : "#2E6A1E"]); }
+    else { const bl = G.ek[here()+"|"+id]; lines.push([bl && bl.blocked ? "Camino bloqueado" : "No hay camino directo desde acá", C.muted]); }
+    const w = Math.max(mw(n.name, 17, FT), ...lines.map(l => mw(l[0], 12))) + 16, h = 24 + lines.length*12, [nx, ny] = w2s(n.x, n.y);
+    let x = nx + 16, y = ny - h/2; if(x + w > VW - 6) x = nx - 16 - w; x = clamp(x, 6, VW - 6 - w); y = clamp(y, 40, 300 - h);
+    R(x+2, y+2, w, h, "rgba(0,0,0,.35)"); card(x, y, w, h);
+    tx(n.name, x + 8, y + 3, C.ink, 17, {f:FT});
+    lines.forEach((l, i) => tx(l[0], x + 8, y + 22 + i*12, l[1], 12));
+  }
+  function infoCard(){
+    const ov = S.overlay; if(!ov || !ov.info) return;
+    const w = 410, lines = wrapT(ov.info, w - 40, 12), h = 22 + lines.length*12, x = 8, y = 352 - h;
+    R(x+2, y+2, w, h, "rgba(0,0,0,.35)"); card(x, y, w, h, ov.col); R(x+1, y+1, 4, h-2, ov.col);
+    tx(ov.title, x + 12, y + 3, ov.col, 15, {f:FT});
+    lines.forEach((l, i) => tx(l, x + 12, y + 19 + i*12, C.ink, 12));
+    btn(x + w - 20, y + 4, 15, 13, "x", () => { S.overlay = null; S.badges = null; }, {sz:12});
+  }
+  function drawPop(t){
+    if(!pop) return;
+    R(0, 0, VW, VH, "rgba(0,0,0,.55)");
+    hit(0, 0, VW, VH, () => { pop = null; }, true);
+    if(pop === "alforja"){
+      const x = 130, y = 36, w = 380, h = 272;
+      panel(x, y, w, h, "Alforja templaria", C.red); hit(x, y, w, h, () => {}, true);
+      tx("Objetos de un solo uso que te dieron los templarios. Usá uno con su número.", x + 10, y + 24, C.muted, 12);
+      for(let k = 0; k < 4; k++){ const id = S.inv[k], ry = y + 42 + k*56;
+        frame(x + 8, ry, w - 16, 52, id ? "#8A6A24" : "#3E2E20", id ? "#3A2818" : "#1E150E");
+        if(!id){ tx("— espacio vacío —", x + w/2, ry + 23, "#5A4A38", 13, {al:"center", bl:"middle"}); continue; }
+        const r = RELIC[id];
+        R(x + 12, ry + 4, 38, 38, "#140D08"); spr(SP.pergamino, x + 16, ry + 11, 3); R(x + 12, ry + 40, 38, 2, r.col);
+        txFit(`${k+1}. ${r.name}`, x + 58, ry + 2, w - 160, C.gold, 16, {f:FT});
+        tx(r.alg, x + w - 84, ry + 6, r.col === C.dij || r.col === C.flo ? C.blue : "#F0C47A", 12, {al:"right"});
+        para(r.desc, x + 58, ry + 20, w - 160, C.parchL, 12, 11);
+        btn(x + w - 76, ry + 14, 62, 20, `Usar (${k+1})`, () => useRelic(k), {red:true, sz:13});
+      }
+    } else if(pop === "diario"){
+      const x = 90, y = 40, w = 460, h = 268;
+      panel(x, y, w, h, "Diario del peregrino"); hit(x, y, w, h, () => {}, true);
+      tx("Ruta recorrida", x + 10, y + 24, C.gold, 14, {f:FT});
+      let yy = y + 40; yy += para(S.visited.map(i => G.nodes[i].name).join(" → "), x + 10, yy, w - 20, C.parchL, 12, 12) + 6;
+      tx("Noticias", x + 10, yy, C.gold, 14, {f:FT}); yy += 18;
+      const ns = S.news.slice(-12).reverse();
+      if(!ns.length) tx("Todavía nada.", x + 10, yy, C.muted, 12);
+      ns.forEach(m => { if(yy > y + h - 16) return; yy += para("· " + m, x + 10, yy, w - 20, C.parch, 12, 11) + 2; });
+    } else if(pop === "ayuda"){
+      const x = 80, y = 40, w = 480, h = 268;
+      panel(x, y, w, h, "Cómo se juega"); hit(x, y, w, h, () => {}, true);
+      let yy = y + 26;
+      yy += para("Entregá las 3 cartas en las encomiendas y llegá a Jerusalén sin quedarte sin víveres. Cada tramo consume sus jornadas.", x + 10, yy, w - 20, C.parchL, 13, 12) + 8;
+      const L = [["letter", "Encomienda: entregá una carta (+3 víveres, la primera abre el reparto B&B)"], ["tent", "Mercado: rearmá la mochila con lo que entre"],
+        ["goal2", "Jerusalén, el destino final"], ["posta", "Posta de Prim: +2 víveres"], ["pergamino", "Bula del Papa: llevala a esa ciudad (+3 víveres)"],
+        ["horseIcon", "Caballo: el joven galopa, el viejo se cansa. 2★ o 3★ en mochilas y reparto te dan uno mejor"]];
+      L.forEach(([ic, s]) => { sprC(SP[ic], x + 22, yy + 6, ic === "goal2" ? 1 : 2); txFit(s, x + 40, yy, w - 50, C.parch, 13); yy += 17; });
+      yy += 2;
+      [["Camino (- - -) · Mar: cambia con verano y otoño · Montaña (^): cambia en invierno", C.parch], ["Número redondo = jornadas del tramo (verde más barato, rojo más caro) · cuadrado = tecla", C.parch],
+       ["Zoom: rueda del mouse o +/−. De lejos solo se ven las jornadas de los tramos que podés tomar", C.green]]
+        .forEach(([s, c]) => { txFit("· " + s, x + 14, yy, w - 24, c, 13); yy += 13; });
+      yy += 6;
+      para("Teclas: 1-6 viajar · +/− zoom · 0 sin zoom · flechas mover · Q alforja · V mochila · L diario · H ayuda · X limpiar vista · Esc menú · M sonido · F pantalla completa", x + 10, yy, w - 20, C.muted, 12, 12);
+    } else if(pop === "menu"){
+      const x = 220, y = 90, w = 200, h = 170;
+      panel(x, y, w, h, "Menú"); hit(x, y, w, h, () => {}, true);
+      btn(x + 16, y + 28, w - 32, 24, "Continuar (Esc)", () => { pop = null; }, {sz:14});
+      btn(x + 16, y + 58, w - 32, 24, `Sonido: ${soundOn ? "sí" : "no"} (M)`, toggleSound, {sz:14});
+      btn(x + 16, y + 88, w - 32, 24, "Nueva peregrinación", newGame, {red:true, sz:14});
+      btn(x + 16, y + 118, w - 32, 24, "Volver al título", () => go("title"), {sz:14});
+    }
+  }
+  function draw(t){
+    if(trans){
+      const p = (t - trans.t0)/650;
+      if(p >= 1){ const tr = trans; trans = null; VIAJE.begin(S.cur, tr.to, tr.e); go("viaje"); return; }
+      const z = 1 + p*p*4; R(0, 0, VW, VH, "#000000");
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(trans.snap, (trans.cx - trans.cx/z)*DPR, (trans.cy - trans.cy/z)*DPR, VW/z*DPR, VH/z*DPR, 0, 0, VW, VH);
+      ctx.imageSmoothingEnabled = false;
+      R(0, 0, VW, VH, `rgba(0,0,0,${p})`);
+      tx(trans.e.terr === "mar" ? "Zarpando…" : "En camino…", VW/2, VH/2 - 14, C.gold, 30, {f:FT, al:"center"});
+      return;
+    }
+    hudTip = null;
+    stepCam();
+    drawMapBase(t);
+    const zoomed = cam.z > 1.01;
+    if(zoomed){ ctx.save(); ctx.beginPath(); ctx.rect(VIEW.x, VIEW.y, VIEW.w, VIEW.h); ctx.clip(); }
+    const pulse = reduced ? .5 : (Math.sin(t/220) + 1)/2;
+    if(!S.over) opts().forEach((o, i) => { const [nx, ny] = w2s(G.nodes[o.v].x, G.nodes[o.v].y), hv = hov === o.v;
+      ctx.strokeStyle = hv ? C.red : `rgba(192,53,43,${.45 + pulse*.5})`; ctx.lineWidth = hv ? 2.5 : 1.5;
+      ctx.beginPath(); ctx.arc(nx, ny - 2, 15 + (hv ? 1 : pulse*2), 0, 6.283); ctx.stroke();
+      if(i < 6){ const kx = nx - 22, ky = ny - 21; R(kx, ky, 12, 13, "#000000"); R(kx + 1, ky + 1, 10, 11, "#EADBB4"); R(kx + 1, ky + 10, 10, 2, "#B8925A");
+        tx(String(i+1), kx + 6, ky + 5.5, C.redD, 12, {al:"center", bl:"middle"}); } });
+    const meN = G.nodes[here()], [mex, mey] = w2s(meN.x, meN.y), me = {i:meN.i, x:mex, y:mey}, bob = reduced ? 0 : Math.abs(Math.sin(t/260))*-2;
+    const halo = ctx.createRadialGradient(me.x, me.y - 30, 2, me.x, me.y - 30, 22); halo.addColorStop(0, "rgba(255,240,190,.55)"); halo.addColorStop(1, "rgba(255,240,190,0)");
+    ctx.fillStyle = halo; ctx.fillRect(me.x - 22, me.y - 52, 44, 44);
+    // el templario se para arriba de la ciudad; si ahí hay otra ciudad o la barra, se corre a un costado
+    const blocked = (x, y) => y < 38 || G.nodes.some(n => { if(n.i === me.i || !S.knownN.has(n.i)) return false; const [sx, sy] = w2s(n.x, n.y);
+      return x < sx + 13 && x + 20 > sx - 13 && y < sy + 21 && y + 24 > sy - 15; });
+    const [kx, ky] = [[me.x - 10, me.y - 41], [me.x + 14, me.y - 26], [me.x - 34, me.y - 26]].find(([x, y]) => !blocked(x, y)) || [me.x - 10, me.y - 41];
+    ctx.fillStyle = "rgba(40,20,8,.35)"; ctx.beginPath(); ctx.ellipse(kx + 10, ky + 25, 8, 2, 0, 0, 6.283); ctx.fill();
+    spr(SP.knight, kx, ky + bob, 1);
+    if(zoomed) ctx.restore();
+    zoomControls();
+    hud(t);
+    if(!pop && hov !== null) tooltip(hov);
+    infoCard();
+    if(!S.overlay){ const hint = S.over ? "Tu peregrinación terminó." : `Estás en ${G.nodes[here()].name} · clic en una ciudad para viajar · rueda o +/− zoom${cam.z > 1.01 ? " · arrastrá para mover" : ""} · H ayuda`;
+      const w = mw(hint, 12) + 14; R(8, 334, w, 16, "rgba(20,12,6,.75)"); tx(hint, 15, 336, C.parch, 12); }
+    const mx = 430;
+    medal(mx, 310, "bag", "alforja", () => { pop = "alforja"; }, {badge:S.inv.length || null, active:pop === "alforja"});
+    medal(mx + 42, 310, "backpack", "mochila", () => go("veredicto"));
+    medal(mx + 84, 310, "libro", "diario", () => { pop = "diario"; }, {active:pop === "diario"});
+    medal(mx + 126, 310, "?", "ayuda", () => { pop = "ayuda"; }, {active:pop === "ayuda"});
+    medal(mx + 168, 310, "menu", "menú", () => { pop = "menu"; }, {active:pop === "menu"});
+    if(S.over) btn(VW/2 - 90, 300, 180, 24, "Ver resultado (Enter)", () => go("fin"), {red:true, sz:15});
+    if(hudTip && !pop){ const w = mw(hudTip, 12) + 14; R(clamp(mouse.x - w/2, 6, VW - w - 6), 38, w, 16, "rgba(20,12,6,.9)"); tx(hudTip, clamp(mouse.x - w/2, 6, VW - w - 6) + 7, 40, C.parch, 12); }
+    drawPop(t);
+  }
+  return {
+    enter, draw,
+    esc(){ pop = pop ? null : "menu"; return true; },
+    key(k){
+      if(pop === "alforja" && k >= "1" && k <= "4"){ useRelic(+k-1); return; }
+      if(k === "q") pop = pop === "alforja" ? null : "alforja";
+      else if(k === "l") pop = pop === "diario" ? null : "diario";
+      else if(k === "h") pop = pop === "ayuda" ? null : "ayuda";
+      else if(pop) return;
+      else if(k >= "1" && k <= "6"){ const o = opts()[+k-1]; if(o) move(o.v); }
+      else if(k === "+" || k === "=") zoomHere(1.35);
+      else if(k === "-" || k === "_") zoomTo(cam.tz/1.35, VW/2, VH/2);
+      else if(k === "0") zoomTo(1, VW/2, VH/2);
+      else if(k.startsWith("arrow") && cam.z > 1.01){ const d = 40/cam.z; if(k === "arrowleft") cam.x -= d; if(k === "arrowright") cam.x += d; if(k === "arrowup") cam.y -= d; if(k === "arrowdown") cam.y += d; cam.anchor = null; clampCam(); }
+      else if(k === "x"){ S.overlay = null; S.badges = null; } else if(k === "v") go("veredicto");
+      else if(k === "enter" && S.over) go("fin"); },
+    click(x, y){ if(pop) return; const id = nodeAt(x, y, w2s); if(id !== null && id !== here()) move(id); },
+    move(x, y){ if(pop){ hov = null; return; } hov = y > 36 ? nodeAt(x, y, w2s) : null; if(hov !== null && opts().some(o => o.v === hov)) pointer = true; },
+    wheel(x, y, dy){ if(pop || trans) return; zoomTo(cam.tz*(dy < 0 ? 1.2 : 1/1.2), x, y); },
+    drag(dx, dy){ if(pop || cam.z <= 1.01) return; cam.x -= dx/cam.z; cam.y -= dy/cam.z; cam.anchor = null; clampCam(); }
+  };
+})();
+
+/* ============ Eventos de viaje (no tocan el grafo: solo el estado de la partida) ============ */
+// cada evento: dónde puede salir, cuánto pesa en el sorteo, qué se ve en el camino y qué pasa.
+// fx/auto devuelven [mensaje, ícono, color] para el aviso en pantalla.
+const land = T => T.terr !== "mar";
+const EVENTS = {
+  templar:{w:T => 3 + S.fe*1.2, when:() => true, title:T => T.terr === "mar" ? "Galera del Temple" : "Caballeros del Temple", col:C.red,
+    sprites:T => T.terr === "mar" ? [{kind:"galley", x:-70, h:70, dz:230, boat:true}] : [-48, 0, 48].map((x,i) => ({kind:"knight", x, h:100, dz:150 + i*12}))},
+  bandits:{w:() => 2, when:() => true, title:T => T.terr === "mar" ? "Piratas" : "Bandidos en el camino", icon:T => T.terr === "mar" ? "pirate" : "bandit",
+    text:T => T.terr === "mar" ? "Una nave de vela negra se acerca y te exige las provisiones." : "Dos encapuchados salen de entre los olivos y te exigen las provisiones.",
+    sprites:T => T.terr === "mar" ? [{kind:"pirate", x:70, h:70, dz:230, boat:true}] : [-34, 30].map((x,i) => ({kind:"bandit", x, h:72, dz:140 + i*10})),
+    auto:T => { const who = T.terr === "mar" ? "piratas" : "bandidos";
+      if(S.def > 0) return [`Desenvainás y los ${who} se retiran. No perdés nada.`, "espada", C.bfs];
+      const loss = S.cura > 0 ? 1 : 3; S.viv -= loss; return [`Te asaltan ${who}: perdés ${loss} jornada${loss > 1 ? "s" : ""} de víveres.${S.cura ? " Los ungüentos ayudaron." : ""}`, "pan", C.red]; }},
+  lobos:{w:T => T.terr === "montana" ? 2.2 : 1.2, when:T => T.terr === "montana" || (T.terr === "camino" && T.season === 3), title:() => "Lobos", icon:() => "wolf",
+    text:() => "Una manada de lobos sale del bosque y rodea a tu caballo.",
+    sprites:() => [-40, 6, 44].map((x,i) => ({kind:"wolf", x, h:30, dz:130 + i*16})),
+    auto:() => { const st = horseStage(S.horse);
+      if(S.def > 0) return ["Blandís la espada y los lobos se dispersan.", "espada", C.bfs];
+      if(st === "joven" || st === "criollo") return ["Tu caballo sale al galope y los deja atrás.", "horseIcon", C.bfs];
+      S.viv -= 2; return ["Los lobos te hacen perder 2 jornadas de víveres antes de huir.", "wolf", C.red]; }},
+  peregrinos:{w:() => 1.6, when:T => T.terr === "camino", title:() => "Peregrinos", icon:() => "pilgrim",
+    text:() => "Un grupo de peregrinos rumbo a Santiago te pide algo para comer.",
+    sprites:() => [-40, -4, 32].map((x,i) => ({kind:"pilgrim", x, h:58, dz:140 + i*8})),
+    opts:[{l:"Compartir 2 víveres", ok:() => S.viv >= 2, fx:() => { S.viv -= 2; S.fe += 1; return ["Los peregrinos rezan por vos: +1 de fe.", "cruz", C.gold]; }},
+          {l:"Seguir de largo", fx:() => ["Los dejás atrás en el camino.", "pilgrim", C.ink2]}]},
+  monasterio:{w:() => 1.3, when:T => T.terr !== "mar", title:() => "Monasterio cisterciense", icon:() => "monk",
+    text:() => "Un monje de la orden de San Bernardo te invita a pasar. Los cistercienses son los padrinos del Temple.",
+    sprites:() => [{kind:"abbey", x:RW_EV + 70, h:120, dz:170}, {kind:"monk", x:24, h:58, dz:140}],
+    opts:[{l:"Pedir posada (+2 víveres)", fx:() => { S.viv += 2; return ["Comés caliente en el refectorio: +2 víveres.", "pan", C.gold]; }},
+          {l:"Pedir consejo (ver el mapa)", fx:T => { revealAround(T.to, 2); return [`El abad te describe las tierras alrededor de ${G.nodes[T.to].name}.`, "libro", C.dij]; }}]},
+  feria:{w:() => 1.1, when:T => T.terr === "camino" && (S.def + S.fe + S.cura) > 0, title:() => "Feria de pueblo", icon:() => "merchant",
+    text:() => "En la plaza hay una feria. Un mercader te ofrece víveres a cambio de algo de tu equipo.",
+    sprites:() => [{kind:"stall", x:-(RW_EV + 40), h:58, dz:160}, {kind:"merchant", x:-30, h:58, dz:150}],
+    opts:[{l:"Cambiar equipo por 3 víveres", fx:() => { const k = S.cura > 0 ? "cura" : S.fe >= S.def ? "fe" : "def";
+            S[k] -= 1; S.gearW = Math.max(0, S.gearW - 3); S.viv += 3;
+            return [`Cambiaste ${k === "cura" ? "los ungüentos" : k === "fe" ? "un objeto de fe" : "un arma"} por 3 víveres.`, "tent", C.gold]; }},
+          {l:"No cambiar nada", fx:() => ["Seguís tu camino sin comprar.", "tent", C.ink2]}]},
+  leproso:{w:() => 1, when:T => T.terr === "camino", title:() => "Un leproso en el camino", icon:() => "leper",
+    text:() => "Un leproso con su campanilla te pide ayuda. Nadie más se acerca.",
+    sprites:() => [{kind:"leper", x:-10, h:56, dz:140}],
+    opts:[{l:"Ayudarlo (−1 víver, +1 fe)", ok:() => S.viv >= 1, fx:() => { S.viv -= 1; S.fe += 1; return ["Lo ayudás. Tu fe se fortalece: +1 de fe.", "cruz", C.gold]; }},
+          {l:"Seguir de largo", fx:() => ["Seguís de largo.", "leper", C.ink2]}]},
+  calma:{w:() => 1.2, when:T => T.terr === "mar" && T.season !== 1, title:() => "Calma chicha", icon:() => "galley",
+    text:() => "El viento se detiene por completo. Las velas cuelgan y el barco no avanza.",
+    auto:T => { T.extra += 1; return ["La calma te cuesta 1 jornada más de viaje.", "hourglass", C.red]; }},
+  viento:{w:T => T.season === 1 ? 2 : 1, when:T => T.terr === "mar" && T.cost > 1, title:() => "Viento a favor", icon:() => "galley",
+    text:() => "Un viento firme de popa infla las velas.",
+    auto:T => { T.extra -= 1; return ["El viento te ahorra 1 jornada de viaje.", "hourglass", C.bfs]; }},
+  naufragio:{w:() => 1, when:T => T.terr === "mar", title:() => "Naufragio a la vista", icon:() => "wreck",
+    text:() => "Entre las olas flota un barco hundido. Hay alguien aferrado a los restos.",
+    sprites:() => [{kind:"wreck", x:60, h:34, dz:220, boat:true}],
+    opts:[{l:"Rescatarlo", fx:T => { if(S.inv.length < 4 && Math.random() < .5){ const id = pick(RELIC_IDS.filter(r => !S.inv.includes(r))); S.inv.push(id);
+              return [`El náufrago era un sargento del Temple: te regala el ${RELIC[id].name}.`, "bag", C.gold]; }
+            revealAround(T.to, 2); return ["El náufrago es un piloto: te describe las rutas de la zona.", "libro", C.dij]; }},
+          {l:"Seguir navegando", fx:() => ["Lo dejás atrás.", "wreck", C.ink2]}]},
+  tormenta:{w:() => 2.4, when:T => T.terr === "mar" && T.season === 2, title:() => "Tormenta de otoño", icon:() => "galley",
+    text:() => "El cielo se cierra y las olas barren la cubierta.",
+    auto:() => { if(S.fe > 0) return ["Rezás toda la noche y la tormenta pasa sin daño.", "cruz", C.bfs];
+      S.viv -= 2; return ["Tirás carga al agua para no hundirte: perdés 2 jornadas de víveres.", "pan", C.red]; }},
+  avalancha:{w:() => 2.2, when:T => T.terr === "montana" && T.season === 3, title:() => "Avalancha", icon:() => "stone",
+    text:() => "Un alud de nieve tapa el paso. Hay que rodear la montaña.",
+    auto:T => { T.extra += 1; return ["El rodeo por la avalancha te cuesta 1 jornada más.", "snow", C.red]; }},
+  ermitano:{w:() => 1, when:T => T.terr === "montana", title:() => "El ermitaño", icon:() => "hermit",
+    text:() => "Un ermitaño que vive en una cueva te lleva hasta un mirador.",
+    sprites:() => [{kind:"hermit", x:-36, h:58, dz:140}],
+    auto:T => { revealAround(T.to, 2); return [`Desde lo alto ves las tierras alrededor de ${G.nodes[T.to].name}.`, "libro", C.dij]; }},
+  mensajero:{w:() => .9, when:T => land(T) && !S.bula && !S.bulaDone, title:() => "Mensajero del Papa", icon:() => "messenger",
+    text:() => "Un jinete con los colores de Roma te pide que lleves una bula papal a otra ciudad.",
+    sprites:() => [{kind:"messenger", x:0, h:100, dz:150}],
+    opts:[{l:"Aceptar la bula", fx:T => { const cand = G.nodes.filter(n => n.i !== G.goal && n.i !== T.to && n.i !== T.from && !S.visited.includes(n.i)).map(n => n.i);
+            const to = pick(cand.length ? cand : [G.goal]); S.bula = {to}; S.knownN.add(to);
+            return [`Llevá la bula a ${G.nodes[to].name}: te pagan 3 víveres al entregarla.`, "pergamino", C.gold]; }},
+          {l:"Rechazar", fx:() => ["El mensajero sigue su camino.", "messenger", C.ink2]}]},
+  espia:{w:() => .9, when:land, title:() => "Un espía sarraceno", icon:() => "spy",
+    text:() => "Un hombre encapuchado te sigue desde hace horas. Lo enfrentás.",
+    sprites:() => [{kind:"spy", x:20, h:70, dz:140}],
+    auto:T => { if(S.def > 0){ revealAround(T.to, 2); return ["Lo desarmás y te entrega su mapa: descubrís rutas nuevas.", "espada", C.bfs]; }
+      if(S.inv.length){ const k = Math.floor(Math.random()*S.inv.length), id = S.inv.splice(k, 1)[0]; return [`El espía huye con tu ${RELIC[id].name}.`, "bag", C.red]; }
+      S.viv -= 1; return ["El espía te roba 1 jornada de víveres y desaparece.", "pan", C.red]; }}
+};
+const RW_EV = 90;
+
+/* ============ Escena: VIAJE en primera persona ============ */
+const VIAJE = (function(){
+  const H = 150, CAMH = 100, FOC = 180, RW = 90, SPEED = .9;
+  let T = null;
+  const SKIES = [
+    {top:"#24406E", mid:"#B07A78", hor:"#F6C48A", haze:"#EBC79A", sun:"#FFE6A8", sunY:116, cloud:"#F6D6BC", far:"#8A7C9C", near:"#6E6878", hill:"#6E7A4A"},
+    {top:"#2A62A8", mid:"#74A6D6", hor:"#D8E8EE", haze:"#DCE6E2", sun:"#FFFBE8", sunY:40, cloud:"#FFFFFF", far:"#8CA2BA", near:"#6E8296", hill:"#5E7A3E"},
+    {top:"#2A1A44", mid:"#A4505E", hor:"#F6964E", haze:"#E8A070", sun:"#FFCC70", sunY:124, cloud:"#EC9A74", far:"#6E4C6E", near:"#4E3C50", hill:"#4E4A34"}
+  ];
+  const WINTER = {top:"#4A5A72", mid:"#9AA8B8", hor:"#DDE2E8", haze:"#E2E6EA", sun:"#F6F6F0", sunY:56, cloud:"#EEF1F4", far:"#9AA4B4", near:"#7A8494", hill:"#8A9298"};
+  const STORM  = {top:"#262C34", mid:"#525C68", hor:"#98A2A8", haze:"#A6AEB2", sun:"#D8DCDC", sunY:50, cloud:"#5E6870", far:"#56606C", near:"#465058", hill:"#4A5444"};
+  const GROUND = {
+    camino: {g1:"#9C9A52", g2:"#949249", e1:"#6E5E44", e2:"#CDBF96", r1:"#C4AA7C", r2:"#BCA274", rut:"#9A7E56", mid:"#AEA266"},
+    montana:{g1:"#8A806C", g2:"#837966", e1:"#5A4E40", e2:"#B8AC98", r1:"#A8987E", r2:"#A19177", rut:"#7A6A54", mid:"#9A8E76"},
+    nieve:  {g1:"#EEF2F6", g2:"#E6ECF2", e1:"#8A8A92", e2:"#FFFFFF", r1:"#CFCBC3", r2:"#C7C3BB", rut:"#A09C94", mid:"#E2E6E8"}
+  };
+  // pelaje según la etapa del caballo
+  const COATS = {
+    joven:  {d:"#4A2410", m:"#8E4C20", l:"#B0642E", hl:"#C07840", hd:"#6A3A18", mane:"#2A1408", strand:"rgba(120,70,40,.6)"},
+    adulto: {d:"#3A2010", m:"#764824", l:"#8E5A32", hl:"#A06A3C", hd:"#5A3418", mane:"#1A100A", strand:"rgba(90,60,40,.6)"},
+    viejo:  {d:"#3E3832", m:"#6E645A", l:"#8A7E74", hl:"#A0968C", hd:"#5A5048", mane:"#C8C0B6", strand:"rgba(230,225,215,.7)"},
+    criollo:{d:"#5A3418", m:"#8A5A34", l:"#F0EAE0", hl:"#F4EEE6", hd:"#8A5A34", mane:"#F0EAE0", strand:"rgba(60,40,20,.5)"}
+  };
+  const FIELDS = [["#BCA85A","#B2A052"], ["#7E9446","#768C40"], ["#8C6A46","#84623F"]];
+  const hash = (a, b) => { const v = Math.sin(a*12.9898 + b*78.233)*43758.5453; return v - Math.floor(v); };
+  const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+
+  function pickEvent(Tt){
+    if(S.forceEv){ const k = S.forceEv; S.forceEv = null; return k; }   // solo para pruebas automáticas
+    if(S.trips === 1) return "templar";
+    if(Math.random() > .72) return null;
+    const pool = Object.keys(EVENTS).filter(k => EVENTS[k].when(Tt)), tot = sum(pool, k => EVENTS[k].w(Tt));
+    let r = Math.random()*tot;
+    for(const k of pool){ r -= EVENTS[k].w(Tt); if(r <= 0) return k; }
+    return pool[pool.length - 1] || null;
+  }
+  function begin(from, to, e){
+    S.trips++;
+    const cost = e.w, L = (1500 + cost*420) * SPEED, terr = e.terr, season = S.season, winter = season === 3;
+    const objs = [];
+    if(terr !== "mar"){
+      for(let z = 150; z < L + 3500; z += ri(60, 130)){ const side = Math.random() < .5 ? -1 : 1, k = Math.random();
+        const kind = terr === "montana" ? (k < .5 ? "stone" : k < .85 ? "cypress" : "shrine") : (k < .4 ? "cypress" : k < .75 ? "olive" : k < .88 ? "stone" : "shrine");
+        objs.push({z, x:side*(RW + ri(30, 190)), kind, h:{cypress:150, olive:78, stone:terr === "montana" ? 34 : 20, shrine:46}[kind]}); }
+      if(!winter || terr !== "montana") for(let z = 120; z < L + 3500; z += ri(25, 55)){ const side = Math.random() < .5 ? -1 : 1;
+        objs.push({z, x:side*(RW + ri(8, 120)), kind:terr === "camino" && Math.random() < .3 ? "flowers" : "tuft", h:7, flat:true}); }
+    }
+    const storm = season === 2 && (terr === "mar" || Math.random() < .4);
+    const sky = winter ? WINTER : storm ? STORM : SKIES[(S.trips-1) % 3];
+    const fresh = RELIC_IDS.filter(id => !S.inv.includes(id)), offer = pick(fresh.length ? fresh : RELIC_IDS);
+    T = {from, to, e, cost, L, camZ:0, objs, eventZ:L*.45, phase:"ride", offer, result:null, terr, season, extra:0,
+         snow:winter && terr !== "mar", rain:storm, sky, seed:Math.random()*10, bg:0, last:0, aside:0, t0:null, spray:[]};
+    T.ev = pickEvent(T);
+    if(T.ev && EVENTS[T.ev].sprites) EVENTS[T.ev].sprites(T).forEach(o => objs.push({z:T.eventZ + o.dz, x:o.x, kind:o.kind, h:o.h, ev:true, boat:o.boat}));
+    // el caballo (solo por tierra): galope, cojera o cansancio
+    const st = horseStage(S.horse); T.horseEv = null;
+    if(terr !== "mar"){ const r = Math.random();
+      if((st === "joven" || st === "criollo") && r < .3 && cost > 1) T.horseEv = "galope";
+      else if(st === "viejo" && r < .35) T.horseEv = "cojo";
+      else if(st === "viejo" && T.snow && r < .6) T.horseEv = "cansado";
+      else if(st === "adulto" && r < .08) T.horseEv = "cojo"; }
+    T.ambient = !storm && Math.random() < .07 ? pick(["eclipse", "cometa"]) : null;
+    // capas lejanas
+    const n1 = Math.random()*10, n2 = Math.random()*10, n3 = Math.random()*10, hm = terr === "montana" ? 2.3 : terr === "mar" ? .3 : 1;
+    T.m1 = [...Array(VW)].map((_,x) => (24 + Math.sin(x/61 + n1)*11 + Math.sin(x/19 + n1*2)*4 + Math.sin(x/7 + n1)*1.2)*hm);
+    T.m2 = [...Array(VW)].map((_,x) => terr === "mar" ? 0 : (11 + Math.sin(x/37 + n2)*6 + Math.sin(x/13 + n2)*2.5)*(terr === "montana" ? 1.9 : 1));
+    T.trees = [...Array(VW)].map((_,x) => terr === "camino" && hash(x, n3) < .12);
+    T.clouds = [...Array(storm ? 11 : ri(5, 8))].map(() => ({x:Math.random()*(VW+200), y:18 + Math.random()*(storm ? 50 : 80), w:40 + Math.random()*90, sp:.003 + Math.random()*.008, par:.05 + Math.random()*.1}));
+    T.birds = terr === "mar" || Math.random() < .5 ? [...Array(ri(2, 4))].map(() => ({x:Math.random()*VW, y:30 + Math.random()*60, sp:.01 + Math.random()*.015, ph:Math.random()*6})) : [];
+    T.dust = [];
+    // gradientes fijos del viaje
+    T.skyG = ctx.createLinearGradient(0, 0, 0, H);
+    T.skyG.addColorStop(0, sky.top); T.skyG.addColorStop(.62, sky.mid); T.skyG.addColorStop(1, sky.hor);
+    T.hazeG = ctx.createLinearGradient(0, H - 26, 0, H + 70);
+    T.hazeG.addColorStop(0, rgba(sky.haze, 0)); T.hazeG.addColorStop(.3, rgba(sky.haze, .75)); T.hazeG.addColorStop(.42, rgba(sky.haze, .45)); T.hazeG.addColorStop(1, rgba(sky.haze, 0));
+    T.seaG = ctx.createLinearGradient(0, H, 0, VH);
+    T.seaG.addColorStop(0, storm ? "#6A7A84" : "#5E8EB0"); T.seaG.addColorStop(.25, storm ? "#3A4C58" : "#2E6894"); T.seaG.addColorStop(1, storm ? "#1C2A34" : "#163E62");
+    T.vig = ctx.createRadialGradient(VW/2, VH*.55, 160, VW/2, VH*.55, 420);
+    T.vig.addColorStop(0, "rgba(0,0,0,0)"); T.vig.addColorStop(1, "rgba(10,5,0,.55)");
+    T.light = ctx.createLinearGradient(0, 0, VW, VH*.6);
+    T.light.addColorStop(0, rgba(sky.sun, .0)); T.light.addColorStop(.62, rgba(sky.sun, .10)); T.light.addColorStop(1, rgba(sky.sun, 0));
+  }
+  const curveAt = z => Math.sin(z/1400 + T.seed)*.9 + Math.sin(z/530 + T.seed*2)*.25;
+  const centerX = dy => VW/2 + curveAt(T.camZ) * Math.pow(1 - dy/(VH-H), 2) * 150;
+  const prog = () => clamp(T.camZ / T.L, 0, 1);
+  const total = () => Math.max(1, T.cost + T.extra);
+
+  function openEvent(){
+    T.phase = "dialog";
+    const E = EVENTS[T.ev];
+    if(E.auto) T.result = E.auto(T);
+    beep(T.ev === "templar" ? [392,494,587] : E.auto && T.result && T.result[2] === C.red ? [196,165,147] : [330,392,494], .12, "square", .04);
+  }
+  function finishEvent(){
+    if(T.result && T.ev !== "templar") news(...T.result);
+    S.seenEv.add(T.ev); T.phase = "ride"; T.aside = performance.now();
+  }
+  function choose(i){
+    if(T.phase !== "dialog") return;
+    const E = EVENTS[T.ev];
+    if(T.ev === "templar"){
+      if(i === 0){ if(S.inv.length >= 4){ T.result = ["Tu alforja ya está llena."]; return; }
+        S.inv.push(T.offer); beep([523,659,784],.08,"triangle",.05); toast(`Guardaste el ${RELIC[T.offer].name} en la alforja.`, {icon:"bag", col:C.gold}); }
+      T.result = null; finishEvent(); return;
+    }
+    if(T.result){ finishEvent(); return; }
+    const o = E.opts && E.opts[i]; if(!o || (o.ok && !o.ok())) return;
+    T.result = o.fx(T); beep([392,523],.06); finishEvent();
+  }
+  function horseMoment(){
+    const k = T.horseEv; T.horseEv = null;
+    if(k === "galope"){ T.extra -= 1; toast(`Tu caballo ${horseStage(S.horse)} se larga al galope: ahorrás 1 jornada.`, {icon:"horseIcon", col:C.bfs}); }
+    else if(k === "cojo"){ if(S.cura > 0) toast("Tu caballo renguea, pero los ungüentos lo curan a tiempo.", {icon:"hierbas", col:C.bfs});
+      else { T.extra += 1; toast("Tu caballo se lastimó una pata: el tramo te cuesta 1 jornada más.", {icon:"horseIcon", col:C.red}); } }
+    else if(k === "cansado"){ T.extra += 1; toast("La nieve agota a tu caballo viejo: 1 jornada más de descanso.", {icon:"snow", col:C.red}); }
+  }
+  function arrive(){
+    const tot = total();
+    S.viv -= tot; S.used += tot; S.trail.push(T.e.i); S.cur = T.to; S.visited.push(T.to); see(T.to);
+    if(S.overlay && S.overlay.kind !== "kruskal" && S.overlay.kind !== "prim"){ S.overlay = null; S.badges = S.badges && S.badges.col === C.flo ? S.badges : null; }
+    const name = G.nodes[T.to].name;
+    let toLetter = false, toMarket = false;
+    const ns = Math.floor(S.used/SEASON_LEN) % 4, seasonChange = ns !== S.season;
+    if(T.to !== G.goal && !(G.encom.has(T.to) && !S.letters.has(T.to) && !S.bbDone) && !(G.markets.has(T.to) && !S.marketsUsed.has(T.to)))
+      banner(name, `Jornada ${S.used} · ${SEASONS[seasonChange ? ns : S.season].n}`, "town");
+    if(G.encom.has(T.to) && !S.letters.has(T.to)){ S.letters.add(T.to); S.viv += 3; toLetter = true; news(`Entregaste la carta en ${name} (${S.letters.size}/3): +3 víveres.`, "letter", C.gold); }
+    if(S.bula && S.bula.to === T.to){ S.bula = null; S.bulaDone = true; S.viv += 3; news(`Entregaste la bula del Papa en ${name}: +3 víveres.`, "pergamino", C.gold); }
+    if(S.postas.has(T.to) && !S.postasUsed.has(T.to)){ S.postasUsed.add(T.to); S.viv += 2; news(`Posta templaria en ${name}: +2 víveres.`, "posta", C.pri); }
+    if(G.markets.has(T.to) && !S.marketsUsed.has(T.to)){ S.marketsUsed.add(T.to); toMarket = true; }
+    if(seasonChange){ S.season = ns; const se = SEASONS[ns]; banner(`Llega el ${se.n.toLowerCase()}`, se.d[0].toUpperCase() + se.d.slice(1), SEASON_ICON[ns]); S.news.push(`Llega el ${se.n.toLowerCase()}: ${se.d}.`);
+      if(!S.horse.criollo){ const before = horseStage(S.horse); S.horse.age++; const after = horseStage(S.horse);
+        news(`Tu caballo cumple ${S.horse.age} años${after !== before ? `: ahora es ${after}` : ""}.`, "horseIcon", after !== before ? C.red : C.ink2); } }
+    if(S.trips >= 2 && T.to !== G.goal && Math.random() < .4) mapEvent();
+    // easter egg: en Constantinopla, a veces (o siempre con un caballo viejo) se sueña con la pampa
+    if(G.nodes[T.to].name === "Constantinopla" && !S.bragado && (horseStage(S.horse) === "viejo" || Math.random() < .25)) S.bragado = "pend";
+    recompute();
+    puff(G.nodes[T.to].x, G.nodes[T.to].y);
+    if(S.viv < 0) S.over = "lose";
+    else if(T.to === G.goal) S.over = "win";
+    if(S.over){ go("fin"); return; }
+    if(toLetter && !S.bbDone){ go("reparto"); return; }
+    if(toMarket){ S.pack = marketPack(); go("mochila"); return; }
+    backToMap();
+  }
+
+  /* ---------- cielo, nubes, montañas, ciudad ---------- */
+  function cloud(x, y, w, col){
+    const g = ctx.createLinearGradient(0, y - w*.3, 0, y + 3); g.addColorStop(0, rgba(col, .95)); g.addColorStop(1, rgba(col, .7));
+    ctx.fillStyle = g;
+    for(let i = 0; i < 6; i++){ const px = x + (i/5)*w, r = w*(.16 + .08*Math.sin(i*1.7 + w)); ctx.beginPath(); ctx.ellipse(px, y - r*.35, r, r*.75, 0, 0, 6.283); ctx.fill(); }
+    ctx.fillRect(x, y - 2, w, 4);
+    ctx.fillStyle = "rgba(60,40,60,.12)"; ctx.fillRect(x - w*.1, y + 1, w*1.2, 2);
+    ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.beginPath(); ctx.ellipse(x + w*.35, y - w*.22, w*.12, w*.06, 0, 0, 6.283); ctx.fill();
+  }
+  function ridge(arr, base, off, fill){
+    ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(0, base);
+    for(let x = 0; x <= VW; x += 2){ const xi = (((x + off) | 0) % VW + VW) % VW; ctx.lineTo(x, base - arr[xi]); }
+    ctx.lineTo(VW, base); ctx.closePath(); ctx.fill();
+  }
+  function city(cx, base, s, col, gold){
+    ctx.fillStyle = col;
+    const wall = 34*s, wh = 9*s;
+    ctx.fillRect(cx - wall/2, base - wh, wall, wh);
+    for(let i = 0; i < 9; i++) ctx.fillRect(cx - wall/2 + i*wall/8.5, base - wh - 2*s, wall/17, 2*s);
+    [[-17, 15, 5], [-7, 20, 4], [9, 18, 4], [17, 14, 5]].forEach(([dx, h, w]) => { ctx.fillRect(cx + dx*s - w*s/2, base - h*s, w*s, h*s);
+      for(let k = 0; k < 3; k++) ctx.fillRect(cx + dx*s - w*s/2 + k*w*s/2.5, base - h*s - 1.5*s, w*s/5, 1.5*s); });
+    if(gold){ ctx.fillStyle = gold; ctx.beginPath(); ctx.arc(cx + 1*s, base - 12*s, 6*s, Math.PI, 0); ctx.fill(); ctx.fillRect(cx + .5*s, base - 21*s, .8*s, 3*s); }
+    else { ctx.fillRect(cx - 1.5*s, base - 26*s, 3*s, 14*s); ctx.beginPath(); ctx.moveTo(cx - 2.5*s, base - 26*s); ctx.lineTo(cx, base - 32*s); ctx.lineTo(cx + 2.5*s, base - 26*s); ctx.fill(); }
+    ctx.fillStyle = "#C0352B"; ctx.fillRect(cx - 17*s, base - 19*s, 3*s, 2*s); ctx.fillRect(cx + 17*s, base - 18*s, 3*s, 2*s);
+  }
+  function drawSky(t){
+    const sk = T.sky, p = prog();
+    ctx.fillStyle = T.skyG; ctx.fillRect(0, 0, VW, H + 1);
+    if(T.ambient === "eclipse"){ ctx.fillStyle = "rgba(14,10,30,.5)"; ctx.fillRect(0, 0, VW, H + 1); }
+    // estrellas tenues en el eclipse y al atardecer
+    if(T.ambient === "eclipse" || T.sky === SKIES[2]) for(let i = 0; i < 40; i++){ const a = (Math.sin(t/600 + i*3) + 1)/2; ctx.fillStyle = `rgba(255,250,230,${a*.5})`; ctx.fillRect(hash(i, 1)*VW, hash(i, 2)*70, 1, 1); }
+    if(!T.rain){
+      const sx = 420 + p*90 - (T.bg*.08 % 120), sy = sk.sunY - p*5;
+      if(T.ambient === "eclipse"){
+        const cg = ctx.createRadialGradient(sx, sy, 10, sx, sy, 40); cg.addColorStop(0, "rgba(255,250,230,.8)"); cg.addColorStop(1, "rgba(255,250,230,0)");
+        ctx.fillStyle = cg; ctx.fillRect(sx - 40, sy - 40, 80, 80); ctx.fillStyle = "#0E0A16"; ctx.beginPath(); ctx.arc(sx, sy, 12, 0, 6.283); ctx.fill();
+      } else {
+        const gl = ctx.createRadialGradient(sx, sy, 6, sx, sy, 90); gl.addColorStop(0, rgba(sk.sun, .55)); gl.addColorStop(1, rgba(sk.sun, 0));
+        ctx.fillStyle = gl; ctx.fillRect(sx - 90, sy - 90, 180, 180);
+        ctx.fillStyle = sk.sun; ctx.beginPath(); ctx.arc(sx, sy, 12, 0, 6.283); ctx.fill();
+      }
+      T.sunX = sx;
+    } else T.sunX = null;
+    if(T.ambient === "cometa"){ const cx = 120 + p*160, cy = 34 + p*10, gr = ctx.createLinearGradient(cx, cy, cx - 90, cy - 26);
+      gr.addColorStop(0, "rgba(255,255,240,.95)"); gr.addColorStop(1, "rgba(180,220,255,0)");
+      ctx.strokeStyle = gr; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx - 90, cy - 26); ctx.stroke();
+      ctx.fillStyle = "#FFFFF0"; ctx.beginPath(); ctx.arc(cx, cy, 2.2, 0, 6.283); ctx.fill(); }
+    T.clouds.forEach(c => { const x = ((c.x + t*c.sp - T.bg*c.par) % (VW + 220) + VW + 220) % (VW + 220) - 110; cloud(x, c.y, c.w, sk.cloud); });
+    T.birds.forEach(b => { const x = (b.x + t*b.sp) % (VW + 40) - 20, y = b.y + Math.sin(t/700 + b.ph)*4, f = Math.sin(t/120 + b.ph)*2;
+      ctx.strokeStyle = "rgba(30,24,30,.75)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x - 4, y - f); ctx.lineTo(x, y); ctx.lineTo(x + 4, y - f); ctx.stroke(); });
+    ridge(T.m1, H, T.bg*.3, sk.far);
+    if(T.terr === "montana" || T.snow){ ctx.fillStyle = "rgba(255,255,255,.88)"; const off = T.bg*.3, thr = T.terr === "montana" ? 52 : 26;
+      for(let x = 0; x < VW; x++){ const h = T.m1[(((x + off) | 0) % VW + VW) % VW]; if(h > thr) ctx.fillRect(x, H - h, 1, Math.min(14, (h - thr)*.7)); } }
+    const cx = centerX(1) + 70, s = .35 + p*1.5;
+    city(cx, H + 1, s, p < .5 ? sk.far : sk.near, T.to === G.goal ? "#C9A040" : null);
+    if(T.m2[0] !== undefined) ridge(T.m2, H + 1, T.bg*.6, T.terr === "montana" ? (T.snow ? "#B8C2CC" : sk.near) : sk.hill);
+    if(T.terr === "camino"){ ctx.fillStyle = "rgba(30,40,20,.55)"; const off = T.bg*.6;
+      for(let x = 0; x < VW; x += 3){ const xi = (((x + off) | 0) % VW + VW) % VW; if(T.trees[xi]){ const h = T.m2[xi]; ctx.beginPath(); ctx.arc(x, H + 1 - h - 1.5, 2.2, 0, 6.283); ctx.fill(); } } }
+  }
+
+  /* ---------- suelo: tierra o mar ---------- */
+  function drawLand(){
+    const P = T.snow ? GROUND.nieve : GROUND[T.terr], farm = T.terr === "camino" && !T.snow;
+    for(let py = H; py < VH; py += .5){
+      const dy = py - H + .5, z = CAMH*FOC/dy, wz = Math.max(0, T.camZ) + z, alt = Math.floor(wz/70) % 2;
+      const cx = centerX(dy), hw = RW*dy/CAMH;
+      ctx.fillStyle = alt ? P.g1 : P.g2; ctx.fillRect(0, py, VW, .5);
+      if(farm){ const band = Math.floor(wz/260), fl = FIELDS[(band*7 + 3) % 3], fr = FIELDS[(band*5 + 1) % 3], edge = hw*3.2;
+        ctx.fillStyle = fl[alt]; ctx.fillRect(0, py, Math.max(0, cx - edge), .5);
+        ctx.fillStyle = fr[alt]; ctx.fillRect(cx + edge, py, VW, .5);
+        if(Math.floor(wz/26) % 2 === 0){ ctx.fillStyle = "rgba(60,40,20,.10)"; ctx.fillRect(0, py, Math.max(0, cx - edge), .5); ctx.fillRect(cx + edge, py, VW, .5); } }
+      const rum = Math.floor(wz/35) % 2;
+      ctx.fillStyle = rum ? P.e1 : P.e2; ctx.fillRect(cx - hw*1.1, py, hw*2.2, .5);
+      ctx.fillStyle = alt ? P.r1 : P.r2; ctx.fillRect(cx - hw, py, hw*2, .5);
+      ctx.fillStyle = P.rut; ctx.fillRect(cx - hw*.52, py, Math.max(.5, hw*.09), .5); ctx.fillRect(cx + hw*.43, py, Math.max(.5, hw*.09), .5);
+      ctx.fillStyle = P.mid; ctx.fillRect(cx - hw*.06, py, hw*.12, .5);
+    }
+  }
+  function drawSea(t){
+    ctx.fillStyle = T.seaG; ctx.fillRect(0, H, VW, VH - H);
+    const crest = T.rain ? "rgba(200,214,220," : "rgba(214,236,250,";
+    for(let py = H; py < VH; py += .5){
+      const dy = py - H + .5, z = CAMH*FOC/dy, wz = T.camZ + z, band = Math.floor(wz/20), nb = Math.floor((T.camZ + CAMH*FOC/(dy + .5))/20);
+      if(band !== nb){ const a = clamp(dy/60, .25, .9), len = Math.max(1, dy/4);
+        ctx.fillStyle = crest + a + ")";
+        for(let k = 0; k < 9; k++){ const x = (hash(band, k)*VW + Math.sin(t/900 + k + band)*8 + VW) % VW; ctx.fillRect(x, py, len, .5); }
+        ctx.fillStyle = "rgba(10,30,50,.18)"; ctx.fillRect(0, py + .5, VW, .5); }
+      if(T.sunX !== null && T.ambient !== "eclipse" && hash(py*2, Math.floor(t/110)) < .4){ const spread = 6 + dy*.9, x = T.sunX + (hash(py, Math.floor(t/90)) - .5)*spread*2;
+        ctx.fillStyle = rgba(T.sky.sun, clamp(.9 - dy/260, .2, .8)); ctx.fillRect(x, py, 1 + dy/18, .5); }
+    }
+  }
+
+  /* ---------- objetos en perspectiva ---------- */
+  function drawObjs(t){
+    const vis = T.objs.filter(o => o.z - T.camZ > 22).map(o => ({o, rel:o.z - T.camZ}));
+    mergeSort(vis, (a,b) => b.rel - a.rel).forEach(({o, rel}) => {
+      const dy = CAMH*FOC/rel; if(dy > VH - H + 220) return;
+      const scale = FOC/rel; let x = o.x;
+      if(o.ev && T.aside && Math.abs(o.x) < RW*1.4){ const k = clamp((performance.now() - T.aside)/900, 0, 1);
+        x = o.x + Math.sign(o.x || 1)*k*(RW + (o.kind === "knight" || o.kind === "messenger" ? 40 : o.boat ? 160 : 120)); }
+      const sp = SP[o.kind], h = o.h*scale, w = h*sp.width/sp.height, sx = centerX(Math.min(dy, VH-H)) + x*scale;
+      let sy = H + dy - h;
+      if(o.boat) sy += Math.sin(t/500 + o.z)*1.5*scale;
+      if(o.kind === "wolf" && !T.aside) sy += Math.abs(Math.sin(t/140 + o.x))*-2*scale;
+      if(!o.flat && !o.boat){ ctx.fillStyle = "rgba(20,12,4,.22)"; ctx.beginPath(); ctx.ellipse(sx, H + dy, w*.55, Math.max(.5, h*.05), 0, 0, 6.283); ctx.fill(); }
+      ctx.drawImage(sp, sx - w/2, sy, w, h);
+      if(o.boat){ ctx.fillStyle = "rgba(214,236,250,.6)"; ctx.fillRect(sx - w*.5, H + dy - h*.05, w, Math.max(.5, h*.03)); }
+    });
+  }
+
+  /* ---------- primer plano: caballo o barco ---------- */
+  function ear(x, y, dir, cA, cB){
+    ctx.fillStyle = cA; ctx.beginPath(); ctx.moveTo(x - 7*dir, y + 6); ctx.quadraticCurveTo(x - 4*dir, y - 14, x + 2*dir, y - 20); ctx.quadraticCurveTo(x + 6*dir, y - 6, x + 7*dir, y + 6); ctx.fill();
+    ctx.fillStyle = cB; ctx.beginPath(); ctx.moveTo(x - 3*dir, y + 3); ctx.quadraticCurveTo(x - 1*dir, y - 9, x + 2*dir, y - 14); ctx.quadraticCurveTo(x + 3*dir, y - 4, x + 3*dir, y + 3); ctx.fill();
+  }
+  function drawHorse(t){
+    const st = horseStage(S.horse), c = COATS[st];
+    const moving = T.phase === "ride", gait = st === "viejo" ? 110 : st === "joven" ? 70 : 85;
+    const bob = reduced || !moving ? 0 : Math.sin(t/gait)*2.2, sway = reduced || !moving ? 0 : Math.sin(t/(gait*2))*1.5;
+    ctx.save(); ctx.translate(sway, bob);
+    const ng = ctx.createLinearGradient(236, 0, 404, 0);
+    ng.addColorStop(0, c.d); ng.addColorStop(.3, c.m); ng.addColorStop(.5, st === "criollo" ? c.m : c.l); ng.addColorStop(.7, c.m); ng.addColorStop(1, c.d);
+    ctx.fillStyle = ng; ctx.beginPath(); ctx.moveTo(226, 364); ctx.quadraticCurveTo(258, 318, 290, 290); ctx.lineTo(350, 290); ctx.quadraticCurveTo(382, 318, 414, 364); ctx.closePath(); ctx.fill();
+    if(st === "criollo"){ // manchas de pelaje overo
+      ctx.fillStyle = c.l; [[258, 340, 22, 14, .4], [376, 334, 18, 22, -.3], [300, 312, 10, 8, 0], [360, 356, 26, 10, .2]].forEach(([x, y, rx, ry, a]) => { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, a, 0, 6.283); ctx.fill(); }); }
+    ctx.fillStyle = "rgba(255,220,170,.10)"; ctx.beginPath(); ctx.moveTo(262, 364); ctx.quadraticCurveTo(284, 320, 300, 296); ctx.lineTo(306, 296); ctx.quadraticCurveTo(292, 330, 280, 364); ctx.fill();
+    const hg = ctx.createRadialGradient(320, 276, 4, 320, 284, 34); hg.addColorStop(0, c.hl); hg.addColorStop(1, c.hd);
+    ctx.fillStyle = hg; ctx.beginPath(); ctx.ellipse(320, 284, 31, 15, 0, 0, 6.283); ctx.fill();
+    ctx.fillStyle = c.m; ctx.beginPath(); ctx.ellipse(320, 271, 15, 8, 0, 0, 6.283); ctx.fill();
+    ctx.fillStyle = c.d; ctx.beginPath(); ctx.ellipse(320, 266, 9, 3.5, 0, 0, 6.283); ctx.fill();
+    if(st === "criollo"){ ctx.fillStyle = "#F4EEE6"; ctx.beginPath(); ctx.ellipse(320, 270, 4, 7, 0, 0, 6.283); ctx.fill(); }
+    const flick = reduced ? 0 : Math.max(0, Math.sin(t/900))*3, droop = st === "viejo" ? 4 : 0;
+    ear(302, 276 + droop, -1, c.hd, c.d); ear(338 + flick*.3, 276 - flick + droop, 1, c.hd, c.d);
+    // crin
+    ctx.fillStyle = c.mane; ctx.beginPath(); ctx.moveTo(306, 364);
+    for(let k = 0; k <= 10; k++){ const y = 364 - k*7.6, w = 9 - k*.35; ctx.lineTo(320 - w - (k % 2 ? 3 : 0), y); }
+    ctx.lineTo(316, 280); ctx.lineTo(324, 280);
+    for(let k = 10; k >= 0; k--){ const y = 364 - k*7.6, w = 9 - k*.35; ctx.lineTo(320 + w + (k % 2 ? 0 : 3), y); }
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = c.strand; ctx.lineWidth = .8;
+    const wind = reduced ? 0 : Math.sin(t/200)*1.5;
+    for(let k = 0; k < 5; k++){ ctx.beginPath(); ctx.moveTo(315 + k*2.5, 362); ctx.quadraticCurveTo(317 + k*1.2 + wind, 320, 318 + k*1.3, 284); ctx.stroke(); }
+    ctx.fillStyle = c.mane; ctx.beginPath(); ctx.moveTo(312, 282); ctx.quadraticCurveTo(320, 262, 328, 282); ctx.fill();
+    // brida con tachas
+    ctx.strokeStyle = "#24140A"; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(320, 284, 29, 13, 0, Math.PI*1.05, Math.PI*1.95); ctx.stroke();
+    ctx.fillStyle = C.gold; ctx.fillRect(289, 285, 4, 4); ctx.fillRect(347, 285, 4, 4);
+    for(let k = 0; k < 5; k++){ const a = Math.PI*(1.15 + k*.175); ctx.fillStyle = "#E8D08A"; ctx.beginPath(); ctx.arc(320 + Math.cos(a)*29, 284 + Math.sin(a)*13, .9, 0, 6.283); ctx.fill(); }
+    ctx.restore();
+    const hb = bob*.5;
+    ctx.strokeStyle = "#2E1A0A"; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.moveTo(291 + sway, 287 + bob); ctx.quadraticCurveTo(270, 330 + hb, 252, 344 + hb); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(349 + sway, 287 + bob); ctx.quadraticCurveTo(370, 330 + hb, 388, 344 + hb); ctx.stroke();
+    [[-1, 238], [1, 402]].forEach(([d, x]) => {
+      ctx.fillStyle = "#EDE6D6"; ctx.beginPath(); ctx.moveTo(x - 44*d, 364); ctx.lineTo(x - 18*d, 348 + hb); ctx.lineTo(x + 6*d, 352 + hb); ctx.lineTo(x - 6*d, 364); ctx.fill();
+      ctx.fillStyle = "#C8C0AE"; ctx.beginPath(); ctx.moveTo(x - 6*d, 364); ctx.lineTo(x + 6*d, 352 + hb); ctx.lineTo(x + 2*d, 364); ctx.fill();
+      ctx.fillStyle = C.red; ctx.beginPath(); ctx.moveTo(x - 30*d, 364); ctx.lineTo(x - 24*d, 356 + hb); ctx.lineTo(x - 20*d, 358 + hb); ctx.lineTo(x - 25*d, 364); ctx.fill();
+      const gx = x - 10, gy = 334 + hb;
+      ctx.fillStyle = "#6E727C"; ctx.beginPath(); ctx.ellipse(gx + 10, gy + 9, 13, 9, d*.3, 0, 6.283); ctx.fill();
+      ctx.fillStyle = "#9AA0AA"; for(let i = 0; i < 4; i++) ctx.fillRect(gx + 2 + i*4.5, gy + 3 + (i % 2), 3, 9);
+      ctx.fillStyle = "rgba(255,255,255,.35)"; for(let i = 0; i < 4; i++) ctx.fillRect(gx + 2.5 + i*4.5, gy + 3.5 + (i % 2), 1, 3);
+      ctx.fillStyle = "#4A4E56"; ctx.fillRect(gx + 1, gy + 12, 18, 2);
+    });
+    // polvo de los cascos
+    if(moving && !reduced && T.terr !== "mar" && !T.snow && Math.random() < .5) T.dust.push({x:240 + Math.random()*160, y:356 + Math.random()*6, vx:(Math.random() - .5)*.6, vy:-.3 - Math.random()*.4, life:30});
+    T.dust = T.dust.filter(q => (q.life-- > 0));
+    T.dust.forEach(q => { q.x += q.vx; q.y += q.vy; ctx.fillStyle = `rgba(190,165,120,${q.life/60})`; ctx.beginPath(); ctx.arc(q.x, q.y, 1.5 + (30 - q.life)*.08, 0, 6.283); ctx.fill(); });
+  }
+  function drawShip(t){
+    const moving = T.phase === "ride", pitch = reduced || !moving ? 0 : Math.sin(t/650)*3, roll = reduced ? 0 : Math.sin(t/900)*.015;
+    const wave = reduced ? 0 : Math.sin(t/400)*4;
+    const mg = ctx.createLinearGradient(52, 0, 66, 0); mg.addColorStop(0, "#3A2210"); mg.addColorStop(.5, "#7A4E2A"); mg.addColorStop(1, "#3A2210");
+    ctx.fillStyle = mg; ctx.fillRect(52, 26, 12, VH - 26);
+    const sg = ctx.createLinearGradient(64, 0, 200, 0); sg.addColorStop(0, "#D8D0BC"); sg.addColorStop(.5, "#F6F0E2"); sg.addColorStop(1, "#E2D8C2");
+    ctx.fillStyle = sg; ctx.beginPath(); ctx.moveTo(64, 34); ctx.quadraticCurveTo(140, 30 + wave*.5, 196, 44 + wave); ctx.quadraticCurveTo(214, 120, 186, 198 + wave); ctx.quadraticCurveTo(120, 206, 64, 204); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "rgba(150,130,100,.35)"; ctx.lineWidth = .6; for(let k = 1; k < 6; k++){ ctx.beginPath(); ctx.moveTo(64, 34 + k*28); ctx.quadraticCurveTo(140, 30 + k*28 + wave*.5, 200, 44 + k*26 + wave); ctx.stroke(); }
+    ctx.fillStyle = "#C0352B";
+    ctx.beginPath(); ctx.moveTo(118, 34); ctx.lineTo(136, 33 + wave*.3); ctx.quadraticCurveTo(146, 120, 134, 203 + wave*.4); ctx.lineTo(116, 204); ctx.quadraticCurveTo(124, 120, 118, 34); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(66, 104); ctx.quadraticCurveTo(140, 100 + wave*.6, 206, 112 + wave); ctx.lineTo(206, 132 + wave); ctx.quadraticCurveTo(140, 124 + wave*.6, 66, 126); ctx.fill();
+    ctx.strokeStyle = "rgba(60,40,20,.7)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(196, 44 + wave); ctx.lineTo(300, 300); ctx.moveTo(186, 198 + wave); ctx.lineTo(250, 330); ctx.stroke();
+    ctx.save(); ctx.translate(320, 360); ctx.rotate(roll); ctx.translate(-320, -360 + pitch);
+    const hg = ctx.createLinearGradient(0, 284, 0, 364); hg.addColorStop(0, "#7A4E2A"); hg.addColorStop(1, "#2E1A0A");
+    ctx.fillStyle = hg; ctx.beginPath(); ctx.moveTo(140, 366); ctx.quadraticCurveTo(236, 330, 320, 284); ctx.quadraticCurveTo(404, 330, 500, 366); ctx.closePath(); ctx.fill();
+    const dg = ctx.createLinearGradient(0, 298, 0, 364); dg.addColorStop(0, "#A47448"); dg.addColorStop(1, "#6A4426");
+    ctx.fillStyle = dg; ctx.beginPath(); ctx.moveTo(182, 366); ctx.quadraticCurveTo(252, 336, 320, 298); ctx.quadraticCurveTo(388, 336, 458, 366); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = "rgba(50,28,10,.55)"; ctx.lineWidth = .8;
+    for(let k = -5; k <= 5; k++){ ctx.beginPath(); ctx.moveTo(320, 300); ctx.lineTo(320 + k*26, 366); ctx.stroke(); }
+    ctx.strokeStyle = "#C08A50"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(140, 366); ctx.quadraticCurveTo(236, 330, 320, 284); ctx.quadraticCurveTo(404, 330, 500, 366); ctx.stroke();
+    ctx.strokeStyle = "#5A3418"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(320, 288); ctx.lineTo(326, 236); ctx.stroke();
+    ctx.strokeStyle = "rgba(60,40,20,.8)"; ctx.lineWidth = .8; ctx.beginPath(); ctx.moveTo(326, 238); ctx.lineTo(290, 310); ctx.moveTo(326, 238); ctx.lineTo(352, 310); ctx.stroke();
+    const pw = reduced ? 0 : Math.sin(t/160)*2;
+    ctx.fillStyle = "#F4F0E4"; ctx.beginPath(); ctx.moveTo(326, 236); ctx.lineTo(342, 239 + pw); ctx.lineTo(326, 244); ctx.fill();
+    ctx.fillStyle = "#C0352B"; ctx.fillRect(330, 238.5 + pw*.5, 5, 1.5); ctx.fillRect(331.8, 237 + pw*.5, 1.5, 4.5);
+    ctx.fillStyle = "#3A2410"; ctx.beginPath(); ctx.ellipse(270, 344, 10, 4, 0, 0, 6.283); ctx.fill();
+    ctx.strokeStyle = "#B08A5A"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(270, 343, 8, 3, 0, 0, 6.283); ctx.ellipse(270, 343, 5, 2, 0, 0, 6.283); ctx.stroke();
+    // el caballo viaja atado en cubierta: su cabeza asoma a la derecha
+    const st = horseStage(S.horse), c = COATS[st];
+    ctx.fillStyle = c.m; ctx.beginPath(); ctx.ellipse(424, 330, 14, 20, -.35, 0, 6.283); ctx.fill();
+    ctx.fillStyle = c.hd; ctx.beginPath(); ctx.ellipse(436, 312, 9, 6, -.6, 0, 6.283); ctx.fill();
+    ctx.fillStyle = c.mane; ctx.fillRect(414, 314, 4, 22);
+    ctx.fillStyle = c.d; ctx.beginPath(); ctx.moveTo(424, 306); ctx.lineTo(426, 296); ctx.lineTo(430, 306); ctx.fill();
+    ctx.restore();
+    if(moving && !reduced && Math.random() < .7) T.spray.push({x:320 + (Math.random() - .5)*30, y:286 + pitch, vx:(Math.random() - .5)*1.6, vy:-.6 - Math.random(), life:22});
+    T.spray = T.spray.filter(q => (q.life-- > 0));
+    T.spray.forEach(q => { q.x += q.vx; q.y += q.vy; q.vy += .07; ctx.fillStyle = `rgba(235,245,255,${q.life/22})`; ctx.fillRect(q.x, q.y, 1.5, 1.5); });
+  }
+
+  /* ---------- clima, luz y encuadre ---------- */
+  function drawWeather(t){
+    if(reduced) return;
+    if(T.snow){ for(let i = 0; i < 110; i++){ const sp = 1 + i % 3, x = (i*53 + t/9*sp + Math.sin(t/800 + i)*8) % VW, y = (i*37 + t/(16 - sp*2)*sp) % VH;
+      ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fillRect(x, y, sp*.6, sp*.6); } }
+    if(T.rain){ ctx.strokeStyle = "rgba(200,214,230,.45)"; ctx.lineWidth = .7; ctx.beginPath();
+      for(let i = 0; i < 120; i++){ const x = (i*61 + t*.35) % (VW + 40) - 20, y = (i*83 + t*.9) % VH; ctx.moveTo(x, y); ctx.lineTo(x - 3, y + 9); } ctx.stroke();
+      if(Math.sin(t/1700)*Math.sin(t/530) > .93){ ctx.fillStyle = "rgba(230,240,255,.35)"; ctx.fillRect(0, 0, VW, VH); } }
+    if(!T.rain && !T.snow && T.ambient !== "eclipse"){ // rayos de sol suaves
+      ctx.fillStyle = T.light; ctx.fillRect(0, 0, VW, VH); }
+  }
+  function draw(t){
+    const dt = T.last ? clamp(t - T.last, 0, 50) : 16; T.last = Math.max(T.last, t);
+    if(T.t0 === null) T.t0 = t;
+    const age = t - T.t0;
+    if(T.phase === "ride"){
+      let v = SPEED;
+      if(T.ev && !T.aside){ const d = T.eventZ - T.camZ; if(d < 360) v = SPEED*Math.max(.3, d/360);
+        if(d <= 3){ v = 0; openEvent(); } }
+      T.camZ += v*dt*(reduced ? 3 : 1); T.bg += curveAt(T.camZ)*v*dt*.12;
+      if(T.horseEv && prog() > .7) horseMoment();
+      if(T.camZ >= T.L){ arrive(); return; }
+    }
+    if(T.ambient && !T.ambNews && age > 1800){ T.ambNews = true;
+      news(T.ambient === "eclipse" ? "Un eclipse oscurece el cielo en pleno día. Los peregrinos lo toman como una señal." : "Un cometa cruza el cielo. Dicen que anuncia grandes cambios en Tierra Santa.", T.ambient === "eclipse" ? "sun" : "snow", C.dfs); }
+    drawSky(t);
+    if(T.terr === "mar") drawSea(t); else drawLand();
+    ctx.fillStyle = T.hazeG; ctx.fillRect(0, H - 26, VW, 96);
+    drawObjs(t);
+    if(T.terr === "mar") drawShip(t); else drawHorse(t);
+    drawWeather(t);
+    ctx.fillStyle = T.vig; ctx.fillRect(0, 0, VW, VH);
+    const bars = reduced ? 0 : 34*(1 - ease(clamp(age/1400, 0, 1)));
+    if(bars > .5){ R(0, 0, VW, bars, "#000000"); R(0, VH - bars, VW, bars, "#000000"); }
+    // HUD
+    const p = prog(), tot = total(), day = Math.min(tot, Math.floor(p*tot) + 1);
+    const hg = ctx.createLinearGradient(0, 0, 0, 27); hg.addColorStop(0, "rgba(10,6,3,.85)"); hg.addColorStop(1, "rgba(10,6,3,.55)");
+    ctx.fillStyle = hg; ctx.fillRect(0, 0, VW, 26); R(0, 26, VW, 1, C.goldD);
+    txFit(`${G.nodes[T.from].name} → ${G.nodes[T.to].name}`, 10, 3, 190, C.gold, 18, {f:FT});
+    const how = T.terr === "mar" ? "Por mar" : T.terr === "montana" ? (T.snow ? "Montaña nevada" : "Por la montaña") : (T.snow ? "Camino nevado" : "Por tierra");
+    txFit(`${how} · jornada ${day} de ${tot}`, VW/2 - 10, 6, 200, C.parchL, 14, {al:"center"});
+    sprC(SP.horseIcon, 432, 13, 1.5); txFit(horseLabel(S.horse), 442, 6, 92, C.parch, 13);
+    sprC(SP.pan, VW - 92, 13, 2); tx(`${S.viv - Math.floor(p*tot)} víveres`, VW - 10, 6, C.parchL, 14, {al:"right"});
+    R(8, 30, VW - 16, 3, "rgba(0,0,0,.5)"); R(8, 30, (VW-16)*p, 3, C.gold);
+    if(age < 2600 && !reduced){ const a = age < 300 ? age/300 : age > 2000 ? (2600 - age)/600 : 1; ctx.globalAlpha = clamp(a, 0, 1);
+      txFit(G.nodes[T.to].name, VW/2, 48, 520, C.parchL, 38, {f:FT, al:"center", sh:"#000000"});
+      tx(`${T.cost} jornadas · ${how.toLowerCase()} · ${SEASONS[T.season].n.toLowerCase()}`, VW/2, 90, C.parch, 14, {al:"center", sh:"#000000"});
+      ctx.globalAlpha = 1; }
+    if(T.phase === "dialog") drawDialog();
+    else if(age > 1600){ const s = "Espacio: apurar el paso"; const w = mw(s, 12) + 12; ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(VW - 8 - w, 37, w, 14); tx(s, VW - 14, 38, "#D8C9A0", 12, {al:"right"}); }
+  }
+  function drawDialog(){
+    const x = 120, y = 40, w = 400, h = 140, sea = T.terr === "mar", E = EVENTS[T.ev];
+    ctx.fillStyle = "rgba(0,0,0,.25)"; ctx.fillRect(0, 0, VW, VH);
+    if(T.ev === "templar"){
+      const r = RELIC[T.offer];
+      panel(x, y, w, h, E.title(T), C.red);
+      para(sea ? "Una galera con la cruz roja se abarloa a tu barco. El comendador reconoce tu sello y te ofrece algo para el viaje:"
+               : "Tres hermanos de la Orden te cierran el paso. Al ver tu sello, el comendador sonríe y te ofrece algo para el viaje:", x+10, y+24, w-20, C.parch, 13, 12);
+      R(x+10, y+52, 44, 40, "#140D08"); spr(SP.pergamino, x+16, y+58, 3); R(x+10, y+90, 44, 2, r.col);
+      txFit(r.name, x+62, y+50, w-74, C.gold, 19, {f:FT});
+      tx("Algoritmo: " + r.alg, x+62, y+68, "#F0C47A", 13);
+      para(r.desc + " Un solo uso.", x+62, y+80, w-74, C.parchL, 12, 11);
+      if(T.result) tx(T.result[0], x+10, y+h-40, C.red, 13);
+      btn(x+10, y+h-26, 180, 20, `Aceptar (1)${S.inv.length >= 4 ? " · llena" : ""}`, () => choose(0), {red:true, disabled:S.inv.length >= 4, sz:14, icon:"bag"});
+      btn(x+w-190, y+h-26, 180, 20, "Agradecer y seguir (2)", () => choose(1), {sz:14});
+      return;
+    }
+    panel(x, y, w, h, E.title(T), E.auto && T.result && T.result[2] === C.red ? C.red : "#8A6A24");
+    // ilustración del evento
+    frame(x+10, y+24, 56, 56, "#5A4024", "#140D08");
+    const ic = SP[E.icon(T)], sc = Math.min(46/ic.width, 46/ic.height);
+    ctx.drawImage(ic, x + 38 - ic.width*sc/2, y + 52 - ic.height*sc/2, ic.width*sc, ic.height*sc);
+    const th = para(E.text(T), x+76, y+24, w-86, C.parch, 13, 12);
+    if(T.result){
+      para(T.result[0], x+76, y+30 + th, w-86, T.result[2] === C.red ? "#F08A7A" : T.result[2] === C.ink2 ? C.muted : C.green, 14, 13);
+      btn(x + w/2 - 90, y+h-26, 180, 20, "Seguir viaje (Enter)", () => choose(0), {red:true, sz:14});
+    } else {
+      E.opts.forEach((o, i) => btn(x + 10 + i*(w/2 - 5), y+h-26, w/2 - 15, 20, `${i+1}. ${o.l}`, () => choose(i), {red:i === 0, disabled:o.ok && !o.ok(), sz:13}));
+    }
+  }
+  return {
+    begin, draw, noEsc:() => true,
+    enter(){ T.last = 0;
+      BANNERS.length = 0; const now = performance.now();
+      TOASTS.forEach(q => { q.dur = q.t0 === null ? 0 : Math.min(q.dur, now - q.t0 + 500); }); },
+    key(k){
+      if(T.phase === "dialog"){
+        const E = EVENTS[T.ev];
+        if(k === "1") choose(0); else if(k === "2" || k === "r") choose(1);
+        else if(k === "enter"){ if(T.ev === "templar") choose(S.inv.length < 4 ? 0 : 1); else if(T.result) choose(0);
+          else { const i = E.opts.findIndex(o => !o.ok || o.ok()); choose(i < 0 ? 0 : i); } }
+      }
+      else if(k === " ") T.camZ = Math.min(T.ev && !T.aside ? T.eventZ - 3 : T.L, T.camZ + 600); },
+    click(){}, move(){}
+  };
+})();
+
+/* ============ Easter egg: la Fiesta del Caballo de Bragado (un sueño en Constantinopla) ============ */
+const BRAGADO = (function(){
+  const HZ = 196;   // horizonte bajo: la pampa es casi todo cielo
+  let t0 = 0, riders = [], smoke = [], clouds = [], crowd = [];
+  function enter(){
+    t0 = performance.now(); smoke = [];
+    riders = [{sp:SP.gaucho1, x:-40, y:262, s:2.4, v:.055}, {sp:SP.gaucho2, x:-260, y:236, s:1.8, v:.04}, {sp:SP.gaucho3, x:-520, y:216, s:1.2, v:.028}];
+    clouds = [...Array(7)].map((_, i) => ({x:i*110 + Math.random()*60, y:30 + Math.random()*70, w:60 + Math.random()*90, v:.004 + Math.random()*.006}));
+    crowd = [...Array(26)].map(() => ({x:200 + Math.random()*250, y:226 + Math.random()*10, c:pick(["#B03A2A", "#2A4A7A", "#E8E2D0", "#6A4A2A", "#74ACDF", "#3A6A3A"]), h:6 + Math.random()*3, ph:Math.random()*6}));
+    beep([392, 494, 587, 784], .14, "triangle", .05);
+  }
+  function leave(){
+    S.horse = {age:4, criollo:true};
+    news("Despertás en Constantinopla. En el establo te espera un caballo criollo: no se lastima ni se cansa.", "horseIcon", C.gold);
+    banner("Un caballo criollo", "Regalo de la Fiesta Nacional del Caballo · Bragado", "horseIcon");
+    go("mapa");
+  }
+  function cloud(x, y, w){
+    ctx.fillStyle = "rgba(255,255,255,.95)";
+    for(let i = 0; i < 6; i++){ const px = x + (i/5)*w, r = w*(.16 + .08*Math.sin(i*1.7 + w)); ctx.beginPath(); ctx.ellipse(px, y - r*.4, r, r*.8, 0, 0, 6.283); ctx.fill(); }
+    ctx.fillRect(x, y - 2, w, 4); ctx.fillStyle = "rgba(120,150,190,.18)"; ctx.fillRect(x - w*.05, y + 1, w*1.1, 2);
+  }
+  function draw(t){
+    const a = t - t0;
+    // cielo de la pampa
+    const sg = ctx.createLinearGradient(0, 0, 0, HZ); sg.addColorStop(0, "#2E78C4"); sg.addColorStop(.6, "#7EB8E6"); sg.addColorStop(1, "#DCEEF6");
+    ctx.fillStyle = sg; ctx.fillRect(0, 0, VW, HZ + 1);
+    const gl = ctx.createRadialGradient(540, 58, 8, 540, 58, 110); gl.addColorStop(0, "rgba(255,248,220,.75)"); gl.addColorStop(1, "rgba(255,248,220,0)");
+    ctx.fillStyle = gl; ctx.fillRect(430, 0, 210, 170); ctx.fillStyle = "#FFF6D8"; ctx.beginPath(); ctx.arc(540, 58, 14, 0, 6.283); ctx.fill();
+    clouds.forEach(c => cloud(((c.x + t*c.v) % (VW + 200)) - 100, c.y, c.w));
+    // montes lejanos sobre el horizonte
+    ctx.fillStyle = "#4E7A3A"; for(let x = 0; x < VW; x += 7){ const h = 3 + Math.abs(Math.sin(x*.13))*5; if(Math.sin(x*.031) > -.2){ ctx.beginPath(); ctx.arc(x, HZ - h*.5, h, Math.PI, 0); ctx.fill(); } }
+    // la llanura
+    for(let py = HZ; py < VH; py += .5){ const dy = py - HZ + .5, z = 9000/dy, alt = Math.floor((z + t*.02)/60) % 2;
+      ctx.fillStyle = alt ? "#7EA84A" : "#76A044"; ctx.fillRect(0, py, VW, .5); }
+    const hz = ctx.createLinearGradient(0, HZ - 8, 0, HZ + 30); hz.addColorStop(0, "rgba(220,238,246,0)"); hz.addColorStop(.3, "rgba(220,238,246,.6)"); hz.addColorStop(1, "rgba(220,238,246,0)");
+    ctx.fillStyle = hz; ctx.fillRect(0, HZ - 8, VW, 38);
+    // alambrado que se pierde en el horizonte
+    ctx.strokeStyle = "rgba(60,50,40,.7)"; ctx.lineWidth = .7;
+    for(let k = 0; k < 3; k++){ ctx.beginPath(); ctx.moveTo(0, 312 - k*9); ctx.lineTo(300, HZ + 2 - k*1.2); ctx.stroke(); }
+    for(let i = 0; i < 12; i++){ const p = Math.pow(i/12, 1.6), x = p*300, y = 312 + (HZ + 2 - 312)*p, h = 34*(1 - p) + 3;
+      ctx.fillStyle = "#5A4028"; ctx.fillRect(x - 1.5*(1 - p) - .5, y - h, 3*(1 - p) + 1, h); }
+    // el ombú
+    ctx.fillStyle = "#4A3424"; ctx.beginPath(); ctx.moveTo(70, 300); ctx.quadraticCurveTo(84, 250, 76, 210); ctx.lineTo(96, 210); ctx.quadraticCurveTo(92, 256, 112, 300); ctx.fill();
+    [[86, 186, 46], [56, 200, 32], [118, 198, 34], [88, 160, 34], [64, 172, 26], [112, 170, 28]].forEach(([x, y, r], i) => {
+      ctx.fillStyle = i % 2 ? "#2E5A26" : "#3A6A2E"; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fill(); });
+    ctx.fillStyle = "rgba(255,255,220,.12)"; ctx.beginPath(); ctx.arc(98, 168, 26, 0, 6.283); ctx.fill();
+    // arco con el cartel de la fiesta
+    ctx.fillStyle = "#5A3A1E"; ctx.fillRect(196, 118, 5, 112); ctx.fillRect(452, 118, 5, 112);
+    const bw = 262, bx = 196, by = 124, wave = reduced ? 0 : Math.sin(t/400)*1.5;
+    ctx.fillStyle = "#74ACDF"; ctx.fillRect(bx + 5, by + wave, bw - 5, 11); ctx.fillStyle = "#FFFFFF"; ctx.fillRect(bx + 5, by + 11 + wave, bw - 5, 22); ctx.fillStyle = "#74ACDF"; ctx.fillRect(bx + 5, by + 33 + wave, bw - 5, 11);
+    ctx.fillStyle = "#F6B40E"; ctx.beginPath(); ctx.arc(bx + 22, by + 22 + wave, 7, 0, 6.283); ctx.fill(); ctx.beginPath(); ctx.arc(bx + bw - 17, by + 22 + wave, 7, 0, 6.283); ctx.fill();
+    txFit("FIESTA NACIONAL DEL CABALLO", bx + bw/2 + 2, by + 13 + wave, 190, "#2A3A6A", 16, {f:FT, al:"center"});
+    tx("Bragado", bx + bw/2 + 2, by + 1 + wave, "#FFFFFF", 11, {f:FT, al:"center"});
+    // la gente mirando
+    crowd.forEach(c => { const j = reduced ? 0 : Math.max(0, Math.sin(t/180 + c.ph))*1.5; ctx.fillStyle = c.c; ctx.fillRect(c.x, c.y - c.h - j, 3, c.h); ctx.fillStyle = "#C08A60"; ctx.fillRect(c.x + .5, c.y - c.h - 2.5 - j, 2, 2.5); });
+    // asado con humo
+    ctx.fillStyle = "#3A2A1E"; ctx.fillRect(536, 286, 34, 3); ctx.fillStyle = "#E06A1A"; ctx.fillRect(540, 289, 26, 4); ctx.fillStyle = "#F6B40E"; ctx.fillRect(546, 288, 12, 2);
+    if(!reduced && Math.random() < .5) smoke.push({x:550 + Math.random()*14, y:284, vx:.1 + Math.random()*.2, r:3, life:120});
+    smoke = smoke.filter(q => (q.life-- > 0));
+    smoke.forEach(q => { q.x += q.vx; q.y -= .35; q.r += .05; ctx.fillStyle = `rgba(230,230,230,${q.life/240})`; ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 6.283); ctx.fill(); });
+    // la doma: un caballo que corcovea en el centro
+    const buck = reduced ? 0 : Math.sin(t/260)*.35, jump = reduced ? 0 : Math.abs(Math.sin(t/260))*10;
+    ctx.save(); ctx.translate(332, 270 - jump); ctx.rotate(-Math.abs(buck)); const dw = SP.gaucho1.width*2.2, dh = SP.gaucho1.height*2.2;
+    ctx.drawImage(SP.gaucho1, -dw*.15, -dh, dw, dh); ctx.restore();
+    ctx.fillStyle = "rgba(30,40,20,.25)"; ctx.beginPath(); ctx.ellipse(345, 272, 26, 4, 0, 0, 6.283); ctx.fill();
+    // jinetes cruzando la pampa
+    riders.forEach(r => { r.x += r.v*16; if(r.x > VW + 60) r.x = -80; const w = r.sp.width*r.s, h = r.sp.height*r.s, gal = reduced ? 0 : Math.abs(Math.sin(t/120 + r.y))*2*r.s/2;
+      ctx.fillStyle = "rgba(30,40,20,.25)"; ctx.beginPath(); ctx.ellipse(r.x + w/2, r.y, w*.4, 2*r.s/2, 0, 0, 6.283); ctx.fill();
+      ctx.drawImage(r.sp, r.x, r.y - h - gal, w, h); });
+    // velo de sueño
+    const vg = ctx.createRadialGradient(VW/2, VH/2, 150, VW/2, VH/2, 400); vg.addColorStop(0, "rgba(255,255,255,0)"); vg.addColorStop(1, "rgba(255,250,235,.75)");
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+    if(a < 1600){ ctx.fillStyle = `rgba(255,250,235,${1 - a/1600})`; ctx.fillRect(0, 0, VW, VH); }
+    // relato
+    ctx.globalAlpha = clamp((a - 600)/800, 0, 1);
+    tx("Un sueño en Constantinopla", VW/2, 30, "#2A3A6A", 26, {f:FT, al:"center", sh:"rgba(255,255,255,.8)"});
+    para("Esa noche, en la posada, soñás con una llanura infinita al otro lado de un mar que nadie conoce. Hay gauchos, caballos criollos y una fiesta que todavía no existe.",
+      150, 62, 340, "#1E2A4A", 13, 13, {sh:"rgba(255,255,255,.7)"});
+    ctx.globalAlpha = 1;
+    if(a > 2200){ panel(170, 304, 300, 50, "", "#74ACDF");
+      txFit("Al despertar, alguien te dejó un regalo en el establo…", 320, 312, 280, C.parch, 13, {al:"center"});
+      btn(220, 328, 200, 20, "Despertar en Constantinopla (Enter)", leave, {red:true, sz:13}); }
+  }
+  return {enter, draw, noEsc:() => true, key(k){ if(k === "enter" && performance.now() - t0 > 1200) leave(); }, click(){}, move(){}};
+})();
+
+/* ============ Escena: FIN ============ */
+const FIN = (function(){
+  function enter(){ BANNERS.length = 0; TOASTS.length = 0; beep(S.over === "win" ? [523,659,784,1047] : [392,330,262,196], .12, "square", .05); }
+  function draw(t){
+    R(0, 0, VW, VH, "#140D08");
+    if(PARCH){ ctx.globalAlpha = .22; ctx.drawImage(PARCH, 0, 0, VW, VH); ctx.globalAlpha = 1; }
+    const win = S.over === "win", L = S.letters.size;
+    const st = !win ? 0 : L < 3 ? 1 : S.used <= G.optMission ? 3 : S.used <= G.optMission*1.2 ? 2 : 1;
+    panel(50, 8, 540, 324, win ? "Deus vult" : "Peregrinación fallida", win ? C.gold : C.red);
+    tx(win ? (L === 3 ? "Misión cumplida" : "Llegaste a Jerusalén") : "No llegaste", VW/2, 28, win ? C.gold : C.red, 36, {f:FT, al:"center", sh:"#000000"});
+    if(win) stars(st, VW/2, 66, 22);
+    else para(S.viv < 0 ? "Te quedaste sin víveres en el camino." : `En ${G.nodes[S.cur].name} ya no te alcanzan los víveres para ningún tramo.`, 70, 78, 500, C.parch, 14);
+    let y = 96;
+    const line = (a, b, c) => { txFit(a, 70, y, 142, C.muted, 13); y += para(b, 220, y, 350, c || C.parchL, 13, 12) + 4; };
+    line("Tu ruta", `${S.used} jornadas, ${S.trail.length} tramos, ${L}/3 cartas entregadas`);
+    const ord = [G.start, ...G.missionOrder, G.goal].map(i => G.nodes[i].name).join(" → ");
+    line("Misión óptima", `${G.optMission} jornadas (Floyd-Warshall + los 6 órdenes posibles): ${ord}`, C.blue);
+    line("Solo ir a Jerusalén", `${G.opt} jornadas con Dijkstra`, C.blue);
+    S.packs.forEach(p => line(p.title, `vos ${p.you} · greedy ${p.greedy} · PD ${p.dp}`, C.gold));
+    if(S.bb) line("Reparto B&B", `vos ${S.bb.you === null ? "–" : S.bb.you} · óptimo ${S.bb.opt} · exploró ${S.bb.explored} de ${S.bb.brute} nodos`, C.gold);
+    line("Caballo", horseLabel(S.horse) + (S.bragado === "visto" ? " · visitaste la Fiesta del Caballo" : ""));
+    line("Objetos usados", S.log.length ? S.log.join(", ") : "ninguno");
+    y = Math.min(y, 282);
+    if(win) para(L < 3 ? "Jerusalén te recibe, pero faltaron cartas: máximo una estrella." :
+                 S.used < G.optMission ? "Le ganaste a la misión óptima: los atajos, calzadas o estaciones jugaron a tu favor." :
+                 S.used === G.optMission ? "Empataste la misión óptima del mapa original." : `La misión óptima usaba ${S.used - G.optMission} jornadas menos.`, 70, y + 4, 500, "#F0C47A", 14);
+    btn(VW/2 - 180, 302, 170, 24, "Ver mapa", () => go("mapa"), {sz:15});
+    btn(VW/2 + 10, 302, 170, 24, "Nueva peregrinación (Enter)", newGame, {red:true, sz:15});
+    tx("El Mediterráneo de 1129 con sus rutas reales · la ciudad de partida cambia en cada peregrinación.", VW/2, 340, C.muted, 13, {al:"center"});
+  }
+  return {enter, draw, key(k){ if(k === "enter") newGame(); }, click(){}, move(){}};
+})();
+
+/* ============ Motor de escenas ============ */
+const SCENES = {title:TITLE, mochila:MOCHILA, veredicto:VEREDICTO, reparto:REPARTO, mapa:MAPA, viaje:VIAJE, bragado:BRAGADO, fin:FIN};
+let scene = TITLE, fadeT0 = -1e9;
+function go(name){ const s = SCENES[name]; if(!s) return; if(name !== "mapa") parts.length = 0; scene = s; if(s.enter) s.enter(); fadeT0 = performance.now(); beep([392,523],.05); }
+function loop(t){
+  UI = []; pointer = false;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.imageSmoothingEnabled = false;
+  if(scene.move && mouse.x >= 0) scene.move(mouse.x, mouse.y);
+  scene.draw(t);
+  drawOverlays(t);
+  const f = (t - fadeT0)/300; if(f < 1 && !reduced){ ctx.fillStyle = `rgba(0,0,0,${1-f})`; ctx.fillRect(0, 0, VW, VH); }
+  cv.style.cursor = pointer ? "pointer" : "default";
+  requestAnimationFrame(loop);
+}
+function toLogical(e){ const r = cv.getBoundingClientRect(); return [(e.clientX - r.left)*VW/r.width, (e.clientY - r.top)*VH/r.height]; }
+cv.addEventListener("mousemove", e => { const [x,y] = toLogical(e);
+  if(mouse.down && scene.drag && mouse.x >= 0){ mouse.dragDist += Math.hypot(x - mouse.x, y - mouse.y); if(mouse.dragDist > 4) scene.drag(x - mouse.x, y - mouse.y); }
+  mouse.x = x; mouse.y = y; });
+cv.addEventListener("mousedown", e => { if(e.button === 0){ mouse.down = true; mouse.dragDist = 0; } });
+addEventListener("mouseup", () => { mouse.down = false; });
+cv.addEventListener("wheel", e => { if(!scene.wheel) return; e.preventDefault(); const [x,y] = toLogical(e); scene.wheel(x, y, e.deltaY); }, {passive:false});
+cv.addEventListener("mouseleave", () => { mouse.x = mouse.y = -1; });
+cv.addEventListener("click", e => { cv.focus(); const [x,y] = toLogical(e); mouse.x = x; mouse.y = y; if(mouse.dragDist > 4){ mouse.dragDist = 0; return; }
+  for(let i = UI.length-1; i >= 0; i--){ const u = UI[i]; if(x >= u.x && x < u.x+u.w && y >= u.y && y < u.y+u.h){ if(!u.disabled) u.fn(); return; } }
+  scene.click(x, y); });
+addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if(["arrowup","arrowdown","arrowleft","arrowright"," "].includes(k)) e.preventDefault();
+  if(k === "escape"){ if(scene.esc && scene.esc()) return; if(scene !== TITLE && !(scene.noEsc && scene.noEsc())) go("title"); return; }
+  if(k === "m"){ toggleSound(); return; }
+  if(k === "f"){ toggleFullscreen(); return; }
+  scene.key(k);
+});
+// ocupa toda la ventana que permita el 16:9, centrado (las franjas sobrantes quedan negras)
+function fit(){ const s = Math.min(innerWidth/VW, innerHeight/VH);
+  cv.style.width = Math.floor(VW*s) + "px"; cv.style.height = Math.floor(VH*s) + "px"; }
+function toggleFullscreen(){ try{ if(document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen(); }catch(e){} }
+addEventListener("resize", fit);
+document.addEventListener("fullscreenchange", fit);
+fit();
+// gancho de depuración: dibuja un cuadro con el tiempo dado (para pruebas automáticas)
+const tick = t => { UI = []; pointer = false; ctx.setTransform(DPR, 0, 0, DPR, 0, 0); scene.draw(t); drawOverlays(t); return scene; };
+window.__temple = {get S(){ return S; }, get G(){ return G; }, get scene(){ return Object.keys(SCENES).find(k => SCENES[k] === scene); }, go, newGame, bbAssign, toast, banner, tick};
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
