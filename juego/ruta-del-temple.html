@@ -13,7 +13,7 @@
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink)}
 .wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
-canvas{display:block;image-rendering:pixelated;outline:none;touch-action:manipulation}
+canvas{display:block;image-rendering:pixelated;outline:none;touch-action:none}
 canvas:focus-visible{box-shadow:0 0 0 2px #E0B44C}
 </style>
 </head>
@@ -796,7 +796,8 @@ const MOCHILA = (function(){
       tx(TIPO[it.t].l, x+44, y+20, TIPO[it.t].c, 12);
       tx(`Peso ${it.p} kg`, x+6, y+38, C.parch, 13);
       tx(`Valor ${it.v} jornadas`, x+6, y+50, C.gold, 13);
-      tx(`Razón ${(it.v/it.p).toFixed(2)}`, x+6, y+62, C.muted, 12);
+      // la pista del greedy aparece al ordenar por valor/peso o al pedir consejo
+      if(sortMode === 1 || hint) tx(`Valor/peso ${(it.v/it.p).toFixed(2)}`, x+6, y+62, C.muted, 12);
       if(PERK[it.t]) tx(PERK[it.t], x+6, y+73, "#C9A86A", 12);
       if(on){ R(x+w-52, y+40, 46, 12, C.red); tx("llevado", x+w-29, y+46, C.parchL, 12, {al:"center", bl:"middle"}); }
       if(gh){ R(x+w-52, y+55, 46, 12, C.gre); tx("escudero", x+w-29, y+61, "#140D08", 12, {al:"center", bl:"middle"}); }
@@ -1419,13 +1420,15 @@ const MAPA = (function(){
        ["Zoom: rueda del mouse o +/−. De lejos solo se ven las jornadas de los tramos que podés tomar", C.green]]
         .forEach(([s, c]) => { txFit("· " + s, x + 14, yy, w - 24, c, 13); yy += 13; });
       yy += 6;
-      para("Teclas: 1-6 viajar · +/− zoom · 0 sin zoom · flechas mover · Q alforja · V mochila · L diario · H ayuda · X limpiar vista · Esc menú · M sonido · F pantalla completa", x + 10, yy, w - 20, C.muted, 12, 12);
+      [["Viajar", "1-6 o clic en la ciudad"], ["Mapa", "+/− zoom · 0 sin zoom · flechas o arrastrar para mover · X limpiar vista"],
+       ["Paneles", "Q alforja · V mochila · L diario · H ayuda"], ["General", "Esc menú · M sonido · F pantalla completa"]]
+        .forEach(([k, s]) => { tx(k, x + 10, yy, C.gold, 12); txFit(s, x + 70, yy, w - 80, C.muted, 12); yy += 12; });
     } else if(pop === "menu"){
       const x = 220, y = 90, w = 200, h = 170;
       panel(x, y, w, h, "Menú"); hit(x, y, w, h, () => {}, true);
       btn(x + 16, y + 28, w - 32, 24, "Continuar (Esc)", () => { pop = null; }, {sz:14});
       btn(x + 16, y + 58, w - 32, 24, `Sonido: ${soundOn ? "sí" : "no"} (M)`, toggleSound, {sz:14});
-      btn(x + 16, y + 88, w - 32, 24, confirmNew ? "¿Seguro? Se pierde la partida" : "Nueva peregrinación",
+      btn(x + 16, y + 88, w - 32, 24, confirmNew ? "Sí, borrar esta partida" : "Nueva peregrinación",
           () => confirmNew ? newGame() : (confirmNew = true), {red:true, sz:14});
       btn(x + 16, y + 118, w - 32, 24, "Volver al título", () => go("title"), {sz:14});
     }
@@ -2169,13 +2172,14 @@ function loop(t){
   requestAnimationFrame(loop);
 }
 function toLogical(e){ const r = cv.getBoundingClientRect(); return [(e.clientX - r.left)*VW/r.width, (e.clientY - r.top)*VH/r.height]; }
-cv.addEventListener("mousemove", e => { const [x,y] = toLogical(e);
+// eventos pointer: el mismo código sirve para mouse, dedo y lápiz (arrastrar el mapa también en pantallas táctiles)
+cv.addEventListener("pointermove", e => { const [x,y] = toLogical(e);
   if(mouse.down && scene.drag && mouse.x >= 0){ mouse.dragDist += Math.hypot(x - mouse.x, y - mouse.y); if(mouse.dragDist > 4) scene.drag(x - mouse.x, y - mouse.y); }
   mouse.x = x; mouse.y = y; });
-cv.addEventListener("mousedown", e => { if(e.button === 0){ mouse.down = true; mouse.dragDist = 0; } });
-addEventListener("mouseup", () => { mouse.down = false; });
+cv.addEventListener("pointerdown", e => { if(e.button === 0){ [mouse.x, mouse.y] = toLogical(e); mouse.down = true; mouse.dragDist = 0; cv.setPointerCapture(e.pointerId); } });
+addEventListener("pointerup", () => { mouse.down = false; });
 cv.addEventListener("wheel", e => { if(!scene.wheel) return; e.preventDefault(); const [x,y] = toLogical(e); scene.wheel(x, y, e.deltaY); }, {passive:false});
-cv.addEventListener("mouseleave", () => { mouse.x = mouse.y = -1; });
+cv.addEventListener("pointerleave", () => { mouse.x = mouse.y = -1; });
 cv.addEventListener("click", e => { cv.focus(); const [x,y] = toLogical(e); mouse.x = x; mouse.y = y; if(mouse.dragDist > 4){ mouse.dragDist = 0; return; }
   for(let i = UI.length-1; i >= 0; i--){ const u = UI[i]; if(x >= u.x && x < u.x+u.w && y >= u.y && y < u.y+u.h){ if(!u.disabled) u.fn(); return; } }
   scene.click(x, y); });
