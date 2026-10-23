@@ -744,13 +744,15 @@ const TITLE = (function(){
     para("El Concilio de Troyes acaba de reconocer a la Orden del Temple. Partís desde una ciudad de Occidente con tres cartas selladas para tres encomiendas y un mensaje para Jerusalén. El mapa está en niebla, las estaciones cambian los caminos y solo los caballeros que encuentres saben ver más allá.",
       250, 146, 290, "#E8D9B4", 14, 14, {sh:"#000000"});
     const y0 = 242;
-    if(canCont()) btn(298, y0, 190, 22, "Continuar peregrinación (C)", () => go("mapa"), {sz:14});
-    btn(298, y0 + (canCont() ? 26 : 0), 190, 22, "Nueva peregrinación (Enter)", newGame, {red:true, sz:14});
+    const cont = canCont();
+    if(cont) btn(298, y0, 190, 22, "Continuar peregrinación (Enter)", () => go("mapa"), {red:true, sz:14});
+    btn(298, y0 + (cont ? 26 : 0), 190, 22, cont ? "Nueva peregrinación (N)" : "Nueva peregrinación (Enter)", newGame, {red:!cont, sz:14});
     tx("Mochila: greedy vs PD · Caminos: BFS, DFS, Dijkstra, Prim, Kruskal, Floyd · Backtracking · Branch & Bound", VW/2, 342, "#A08A66", 12, {al:"center", sh:"#000000"});
     const s = `sonido (M): ${soundOn ? "sí" : "no"}`; tx(s, VW-8, 6, C.muted, 12, {al:"right"}); const w = mw(s, 12); hit(VW-8-w, 4, w, 14, toggleSound);
     const fs = "pantalla completa (F)", fw = mw(fs, 12); tx(fs, VW-16-w-fw, 6, C.muted, 12); hit(VW-16-w-fw, 4, fw, 14, toggleFullscreen);
   }
-  return {draw, key(k){ if(k === "enter") newGame(); else if(k === "c" && canCont()) go("mapa"); }, click(){}, move(){}};
+  // con partida en curso, Enter continúa; empezar de nuevo pide la N a propósito
+  return {draw, key(k){ if(k === "enter") canCont() ? go("mapa") : newGame(); else if(k === "c" && canCont()) go("mapa"); else if(k === "n") newGame(); }, click(){}, move(){}};
 })();
 
 /* ============ Escena: MOCHILA (partida y mercados) ============ */
@@ -945,8 +947,8 @@ const REPARTO = (function(){
       y += para("Es optimista: ignora que dos caballeros pueden querer la misma tarea, así que nunca supera al costo real.", 418, y, 210, "#F0C47A", 13, 12) + 8;
       y += para("Si la cota de una rama ya iguala o pasa la mejor solución conocida, esa rama se poda sin explorarla.", 418, y, 210, C.muted, 13, 12) + 8;
       para("La primera cota superior sale del greedy: cada caballero toma su tarea libre más barata.", 418, y, 210, C.muted, 13, 12);
-      btn(418, 240, 210, 22, "Resolver con B&B (Enter)", solve, {red:true, sz:14});
-      btn(418, 266, 210, 18, "Limpiar (L)", () => asg.fill(-1), {disabled:asg.every(c => c < 0)});
+      btn(418, 236, 210, 24, "Resolver con B&B (Enter)", solve, {red:true, sz:14});
+      btn(418, 268, 210, 18, "Limpiar (L)", () => asg.fill(-1), {disabled:asg.every(c => c < 0)});
     } else {
       const row = (a, b, c, y) => { tx(a, 418, y, C.muted, 13); tx(String(b), 628, y, c, 13, {al:"right"}); };
       row("Nodos explorados", res.explored, C.parchL, 48); row("Ramas podadas", res.pruned, C.red, 60);
@@ -1136,7 +1138,7 @@ function nodeAt(x, y, toScreen){ let b = null, bd = 1e9;
 
 /* ============ Escena: MAPA ============ */
 const MAPA = (function(){
-  let hov = null, msg = "", trans = null, pop = null;
+  let hov = null, msg = "", trans = null, pop = null, confirmNew = false;
   const here = () => S.cur;
   const opts = () => G.adj[here()];
   function enter(){ hov = null; trans = null; pop = null; if(!PARCH) buildParchment(); layoutKey = ""; focusHere(); }
@@ -1373,9 +1375,10 @@ const MAPA = (function(){
     R(x+2, y+2, w, h, "rgba(0,0,0,.35)"); card(x, y, w, h, ov.col); R(x+1, y+1, 4, h-2, ov.col);
     tx(ov.title, x + 12, y + 3, ov.col, 15, {f:FT});
     lines.forEach((l, i) => tx(l, x + 12, y + 19 + i*12, C.ink, 12));
-    btn(x + w - 20, y + 4, 15, 13, "x", () => { S.overlay = null; S.badges = null; }, {sz:12});
+    btn(x + w - 24, y + 3, 20, 16, "x", () => { S.overlay = null; S.badges = null; }, {sz:13});
   }
   function drawPop(t){
+    if(pop !== "menu") confirmNew = false;   // la confirmación se olvida al cerrar el menú
     if(!pop) return;
     R(0, 0, VW, VH, "rgba(0,0,0,.55)");
     hit(0, 0, VW, VH, () => { pop = null; }, true);
@@ -1422,7 +1425,8 @@ const MAPA = (function(){
       panel(x, y, w, h, "Menú"); hit(x, y, w, h, () => {}, true);
       btn(x + 16, y + 28, w - 32, 24, "Continuar (Esc)", () => { pop = null; }, {sz:14});
       btn(x + 16, y + 58, w - 32, 24, `Sonido: ${soundOn ? "sí" : "no"} (M)`, toggleSound, {sz:14});
-      btn(x + 16, y + 88, w - 32, 24, "Nueva peregrinación", newGame, {red:true, sz:14});
+      btn(x + 16, y + 88, w - 32, 24, confirmNew ? "¿Seguro? Se pierde la partida" : "Nueva peregrinación",
+          () => confirmNew ? newGame() : (confirmNew = true), {red:true, sz:14});
       btn(x + 16, y + 118, w - 32, 24, "Volver al título", () => go("title"), {sz:14});
     }
   }
@@ -1464,7 +1468,8 @@ const MAPA = (function(){
     if(!pop && hov !== null) tooltip(hov);
     infoCard();
     if(!S.overlay){ const hint = S.over ? "Tu peregrinación terminó." : `Estás en ${G.nodes[here()].name} · clic en una ciudad para viajar · rueda o +/− zoom${cam.z > 1.01 ? " · arrastrá para mover" : ""} · H ayuda`;
-      const w = mw(hint, 12) + 14; R(8, 334, w, 16, "rgba(20,12,6,.75)"); tx(hint, 15, 336, C.parch, 12); }
+      // tope de ancho: los medallones empiezan en x=430
+      const w = Math.min(mw(hint, 12) + 14, 416); R(8, 334, w, 16, "rgba(20,12,6,.75)"); txFit(hint, 15, 336, w - 14, C.parch, 12); }
     const mx = 430;
     medal(mx, 310, "bag", "alforja", () => { pop = "alforja"; }, {badge:S.inv.length || null, active:pop === "alforja"});
     medal(mx + 42, 310, "backpack", "mochila", () => go("veredicto"));
