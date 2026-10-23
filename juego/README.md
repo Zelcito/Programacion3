@@ -23,6 +23,7 @@ instalar nada; solo necesita internet la primera vez para cargar las fuentes.
 - **Mapa:** clic en una ciudad para viajar (o teclas 1-6), rueda o +/− para zoom,
   arrastrar para moverse, Q alforja, V mochila, L diario, H ayuda
 - **Viaje:** espacio para apurar el paso, 1/2 o Enter para elegir en los eventos
+- **Título:** Enter continúa la partida en curso (o empieza una si no hay), N empieza una nueva
 - **General:** F pantalla completa, M sonido, Esc menú
 
 Los algoritmos del juego están escritos en JavaScript dentro del HTML. Los que
