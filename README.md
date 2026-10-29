@@ -257,6 +257,10 @@ ejemplos de `docs/ENDPOINTS.md` usan siempre los costos base de esta tabla.
 - **Claude (Claude Code, Anthropic):** se usó en el hito 4 como apoyo para pasar
   el dominio a `CargaInicial`, implementar BFS y DFS, sus tests y sus fichas en
   `docs/ENDPOINTS.md`.
+- **Claude (Claude Code, Anthropic):** se usó en el hito 5 como apoyo para
+  implementar Dijkstra, Prim y Kruskal (con Union-Find), hacer genérico el
+  ordenamiento para que Kruskal reutilice el MergeSort del hito 2, escribir sus
+  tests y sus fichas, y verificar los resultados contra un cálculo a mano.
 
 ---
 
@@ -279,8 +283,8 @@ curl "http://localhost:8080/api/grafo/bfs?origen=PAR"
 # -> ["PAR","TRO","LYO","MRS","GEN",...,"JER"]
 
 # 5. Probar un algoritmo sin implementar
-curl "http://localhost:8080/api/grafo/prim?origen=PAR"
-# -> 501 {"estado":"PENDIENTE","detalle":"Todavia no esta implementado: Prim"}
+curl "http://localhost:8080/api/grafo/floyd"
+# -> 501 {"estado":"PENDIENTE","detalle":"Todavia no esta implementado: Floyd-Warshall"}
 ```
 
 Al arrancar, `CargaInicial` carga La Ruta del Temple. Si la base todavía tiene

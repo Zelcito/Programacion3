@@ -109,19 +109,222 @@ cantidad de aristas, no la suma de sus costos: para eso está Dijkstra.
 
 ### GET /api/grafo/dijkstra
 
-_(completar)_
+Ruta de menos jornadas entre dos ciudades. Devuelve las ciudades del camino, en
+orden, y el total de jornadas.
+
+**Parámetros:** `origen` y `destino` (ids de ciudad, por ejemplo `PAR` y `JER`).
+Una ciudad que no existe devuelve 400. Una ruta de costo negativo devuelve 400
+con la ruta que la causa. Si no hay ningún camino entre las dos ciudades, 422.
+Origen igual a destino devuelve `{"vertices":["PAR"],"costoTotal":0.0}`.
+
+**Ejemplo:** `GET /api/grafo/dijkstra?origen=PAR&destino=JER`
+
+**Respuesta:**
+```json
+{"vertices":["PAR","LYO","MRS","ROM","BRI","ATE","ROD","CHI","JER"],"costoTotal":26.0}
+```
+3 + 2 + 4 + 4 + 4 + 3 + 3 + 3 = 26 jornadas. Es el único camino de 26, así que
+el resultado no depende del orden en que Neo4j devuelva las rutas.
+
+**Cálculo a mano** desde París: cada ciudad con su distancia definitiva y la
+ciudad desde la que llega, en el orden en que Dijkstra la saca de la cola.
+
+| # | Ciudad | Jornadas | Desde | | # | Ciudad | Jornadas | Desde |
+|---|---|---|---|---|---|---|---|---|
+| 1 | PAR | 0 | — | | 11 | ATE | 17 | BRI |
+| 2 | TRO | 2 | PAR | | 12 | TES | 18 | BRI |
+| 3 | LYO | 3 | PAR | | 13 | CRE | 19 | PAL o ATE (empate: 12 + 7 = 17 + 2) |
+| 4 | MRS | 5 | LYO | | 14 | ROD | 20 | ATE |
+| 5 | GEN | 7 | LYO | | 15 | CON | 21 | ATE |
+| 6 | BCN | 8 | MRS | | 16 | CHI | 23 | ROD |
+| 7 | ROM | 9 | MRS | | 17 | ICO | 24 | ROD |
+| 8 | VEN | 10 | GEN | | 18 | TRI | 25 | CHI |
+| 9 | PAL | 12 | ROM | | 19 | ANT | 26 | CHI |
+| 10 | BRI | 13 | ROM | | 20 | JER | 26 | CHI |
+
+Siguiendo la columna "Desde" hacia atrás desde JER sale el camino de la respuesta.
+`CaminosMinimosTest` verifica además PAR→ROM = 9, PAR→ATE = 17, PAR→CON = 21,
+PAR→CHI = 23 y ROM→JER = 17, y sobre el grafo A..H de `GUIA-TPO.md`, A→C = 7
+(no 9 por la ruta directa) y A→H = 20.
+
+**Dijkstra contra BFS:** BFS llega a Jerusalén en 7 etapas, por ejemplo
+PAR → LYO → MRS → BCN → PAL → CRE → CHI → JER, que cuesta 29 jornadas. Dijkstra
+usa 8 etapas y 26 jornadas. BFS minimiza la cantidad de rutas; Dijkstra, la suma
+de sus costos.
+
+**Por qué es greedy:** en cada paso saca de la cola la ciudad sin fijar más
+cercana al origen y deja su distancia fija para siempre, sin volver a revisarla.
+Es correcto porque, con costos mayores o iguales a 0, cualquier otro camino hasta
+esa ciudad tiene que pasar por alguna ciudad que sigue en la cola, que ya está
+igual o más lejos, y sumarle rutas no lo achica.
+
+**Por qué los costos negativos lo rompen:** esa garantía deja de valer. Con
+A→B = 2, A→C = 3 y C→B = −2, Dijkstra fija B en 2 antes de mirar C, pero
+A→C→B cuesta 1. En un grafo no dirigido es peor: una ruta negativa recorrida de
+ida y vuelta es un ciclo negativo, y entonces no existe camino mínimo. Por eso se
+valida antes de empezar.
+
+**Complejidad:** O((V + E) log V).
+- Validar que no haya costos negativos e inicializar `dist[]` y `predecesor[]`: O(V + E).
+- Cada relajación que mejora una distancia encola una entrada nueva (inserción
+  perezosa: en vez de bajarle la prioridad a la que ya estaba). Hay a lo sumo
+  una por arista dirigida, 2E en un grafo no dirigido. Cada `add` y `poll` del
+  heap cuesta O(log E), y como E ≤ V², log E ≤ 2 log V: O(log V).
+- Cada ciudad se procesa una sola vez, porque las entradas viejas se descartan
+  al salir (`if (actual.distancia() > dist[u]) continue`). Al procesarla se
+  recorren sus vecinos: 2E en total.
+- Reconstruir el camino siguiendo `predecesor[]`: O(V).
+- Con búsqueda lineal del mínimo en lugar de heap sería O(V²).
+
+**Espacio:** O(V + E): `dist[]` y `predecesor[]` de V posiciones, y la cola,
+que puede llegar a tener una entrada por arista.
+
+**Estructura usada:** lista de adyacencia + `PriorityQueue` (heap binario) +
+arreglos `dist[]` y `predecesor[]`. La relajación está en `CaminosMinimos.dijkstra`,
+marcada `// RELAJACION`.
 
 ---
 
 ### GET /api/grafo/prim
 
-_(completar)_
+Árbol de recubrimiento mínimo: las rutas que conectan las 20 ciudades con el
+menor total de jornadas. En el dominio, son las rutas que el Temple tendría que
+custodiar para que una encomienda pueda llegar a cualquier ciudad. Prim hace
+crecer el árbol desde una ciudad y en cada paso suma la ruta más barata que sale
+del árbol hacia una ciudad que todavía no está.
+
+**Parámetros:** `origen` (ciudad desde la que crece el árbol). El costo total es
+el mismo desde cualquier ciudad, y `ArbolRecubrimientoTest` lo verifica para las
+20. Una ciudad que no existe devuelve 400. Si el grafo no es conexo, 422.
+
+**Ejemplo:** `GET /api/grafo/prim?origen=PAR`
+
+**Respuesta** (con las rutas en el orden de la tabla del README, el que usan los
+tests; las aristas salen en el orden en que entran al árbol):
+```json
+{"aristas":[
+  {"origen":"PAR","destino":"TRO","costo":2.0},{"origen":"TRO","destino":"LYO","costo":2.0},
+  {"origen":"LYO","destino":"MRS","costo":2.0},{"origen":"MRS","destino":"GEN","costo":3.0},
+  {"origen":"MRS","destino":"BCN","costo":3.0},{"origen":"GEN","destino":"ROM","costo":3.0},
+  {"origen":"GEN","destino":"VEN","costo":3.0},{"origen":"ROM","destino":"PAL","costo":3.0},
+  {"origen":"PAL","destino":"BRI","costo":3.0},{"origen":"BRI","destino":"ATE","costo":4.0},
+  {"origen":"ATE","destino":"CRE","costo":2.0},{"origen":"CRE","destino":"ROD","costo":2.0},
+  {"origen":"ROD","destino":"CHI","costo":3.0},{"origen":"CHI","destino":"TRI","costo":2.0},
+  {"origen":"TRI","destino":"ANT","costo":2.0},{"origen":"ATE","destino":"TES","costo":3.0},
+  {"origen":"CHI","destino":"JER","costo":3.0},{"origen":"ATE","destino":"CON","costo":4.0},
+  {"origen":"ROD","destino":"ICO","costo":4.0}],
+ "costoTotal":53.0}
+```
+19 aristas (V − 1 con V = 20): siete de 2, nueve de 3 y tres de 4, o sea
+14 + 27 + 12 = 53 jornadas.
+
+Como hay costos repetidos, el grafo tiene varios árboles mínimos. Si Neo4j
+devuelve las rutas en otro orden, el conjunto puede cambiar, pero el costo total
+es siempre 53, con siete rutas de 2, nueve de 3 y tres de 4. Sobre el grafo A..H
+de `GUIA-TPO.md`, Prim y Kruskal dan 27 con 7 aristas.
+
+**Implementación elegida: con heap**, O(E log V), y no con arreglos, O(V²). El
+grafo es ralo: E = 36, lejos de V² = 400. Con arreglos, cada uno de los 20 pasos
+recorre las 20 ciudades buscando la clave mínima, aunque cada ciudad tenga solo
+entre 2 y 5 rutas. La versión con arreglos conviene en grafos densos (E cerca de
+V²), donde E log V pasa a ser más que V².
+
+**Complejidad:** O(E log V).
+- Cada ciudad entra al árbol una sola vez (`enArbol[]`); las entradas viejas de
+  la cola se descartan al salir.
+- Al entrar una ciudad se recorren sus vecinos: 2E en total. Cada vecino al que
+  le baja la `clave[]` se encola: a lo sumo 2E entradas, con `add` y `poll` en
+  O(log V) (el mismo argumento que en Dijkstra).
+- Inicialización: O(V). Total O(V + E log V), que es O(E log V) en un grafo
+  conexo porque E ≥ V − 1.
+
+**Espacio:** O(V + E): `clave[]`, `padre[]` y `enArbol[]` de V posiciones, y la cola.
+
+**Estructura usada:** lista de adyacencia + `PriorityQueue` (heap binario) +
+arreglos `clave[]` (ruta más barata que une cada ciudad con el árbol), `padre[]`
+y `enArbol[]`.
 
 ---
 
 ### GET /api/grafo/kruskal
 
-_(completar)_
+El mismo árbol de recubrimiento mínimo, armado de otra forma: ordena las 36 rutas
+de menor a mayor costo y las va agregando, salteando las que cerrarían un ciclo
+con las ya elegidas.
+
+**Parámetros:** ninguno. Si el grafo no es conexo, 422.
+
+**Ejemplo:** `GET /api/grafo/kruskal`
+
+**Respuesta** (con las rutas en el orden de la tabla del README):
+```json
+{"aristas":[
+  {"origen":"PAR","destino":"TRO","costo":2.0},{"origen":"TRO","destino":"LYO","costo":2.0},
+  {"origen":"LYO","destino":"MRS","costo":2.0},{"origen":"ATE","destino":"CRE","costo":2.0},
+  {"origen":"CRE","destino":"ROD","costo":2.0},{"origen":"CHI","destino":"TRI","costo":2.0},
+  {"origen":"ANT","destino":"TRI","costo":2.0},{"origen":"BCN","destino":"MRS","costo":3.0},
+  {"origen":"MRS","destino":"GEN","costo":3.0},{"origen":"GEN","destino":"VEN","costo":3.0},
+  {"origen":"GEN","destino":"ROM","costo":3.0},{"origen":"ROM","destino":"PAL","costo":3.0},
+  {"origen":"PAL","destino":"BRI","costo":3.0},{"origen":"TES","destino":"ATE","costo":3.0},
+  {"origen":"ROD","destino":"CHI","costo":3.0},{"origen":"CHI","destino":"JER","costo":3.0},
+  {"origen":"BRI","destino":"ATE","costo":4.0},{"origen":"TES","destino":"CON","costo":4.0},
+  {"origen":"CON","destino":"ICO","costo":4.0}],
+ "costoTotal":53.0}
+```
+Cuesta 53 con 19 aristas, igual que Prim, pero el árbol no es el mismo: Prim
+toma ATE-CON y ROD-ICO donde Kruskal toma TES-CON y CON-ICO. Cada par cuesta lo
+mismo (4 y 4): son empates, y los dos árboles son mínimos.
+
+**Cálculo a mano.** Las rutas van ordenadas por costo y, a igual costo, en el
+orden en que las junta el código: ciudad por ciudad según la tabla de ciudades
+del README y, dentro de cada ciudad, según la tabla de rutas. Por eso CHI-JER
+aparece antes que TRI-JER.
+
+| Costo | Se agregan | Se descartan porque cerrarían un ciclo |
+|---|---|---|
+| 2 | PAR-TRO, TRO-LYO, LYO-MRS, ATE-CRE, CRE-ROD, CHI-TRI, ANT-TRI | — |
+| 3 | BCN-MRS, MRS-GEN, GEN-VEN, GEN-ROM, ROM-PAL, PAL-BRI, TES-ATE, ROD-CHI, CHI-JER | PAR-LYO (por PAR-TRO-LYO), VEN-ROM (VEN-GEN-ROM), ATE-ROD (ATE-CRE-ROD), CHI-ANT (CHI-TRI-ANT), TRI-JER (TRI-CHI-JER) |
+| 4 | BRI-ATE, TES-CON, CON-ICO | LYO-GEN (LYO-MRS-GEN), MRS-ROM (MRS-GEN-ROM), VEN-BRI (VEN-GEN-ROM-PAL-BRI), ROM-BRI (ROM-PAL-BRI), ATE-CON (ATE-TES-CON) |
+
+Con CON-ICO se llega a 19 aristas y el algoritmo termina: las 7 rutas que
+quedan (CON-ROD, ICO-ANT e ICO-ROD de 4, BRI-TES y CRE-CHI de 5, BCN-PAL de 6 y
+PAL-CRE de 7) ya no se miran. 19 agregadas + 10 descartadas + 7 sin mirar = 36.
+
+**Ordenamiento de las rutas:** con el MergeSort propio del hito 2
+(`Ordenamiento.mergeSort`), que para esto pasó a ser genérico (antes solo
+aceptaba `List<Item>`). No se usa `Collections.sort`. MergeSort es O(E log E)
+siempre, mientras que QuickSort puede caer en O(E²), y es estable: a igual costo,
+las rutas quedan en el orden en que se leyeron, así que para un mismo grafo el
+resultado es siempre el mismo.
+
+Cada ruta aparece dos veces en la lista de adyacencia, una por sentido: se toma
+solo la de `u < v`.
+
+**Union-Find:** propio (clase interna `UnionFind`). Cada componente es un árbol
+cuya raíz la representa, y una ruta u-v cierra un ciclo si `find(u) == find(v)`,
+es decir, si sus dos ciudades ya están en la misma componente. `find` hace
+compresión de caminos (cada ciudad recorrida queda colgada directo de la raíz) y
+`union` cuelga el árbol de menor rango del de mayor rango. Con las dos cosas,
+cada operación cuesta O(α(V)) amortizado, donde α es la inversa de Ackermann:
+prácticamente constante.
+
+**Complejidad:** O(E log E), que es O(E log V) porque E ≤ V².
+- Juntar las rutas: O(V + E).
+- Ordenarlas con MergeSort: O(E log E). Es el paso que domina.
+- Recorrerlas consultando Union-Find: O(E · α(V)).
+
+**Espacio:** O(V + E): la lista de rutas, su copia ordenada (más las listas
+auxiliares de MergeSort) y los arreglos `padre[]` y `rango[]` de Union-Find.
+
+**Estructura usada:** lista de rutas ordenada con MergeSort + Union-Find con
+compresión de caminos y unión por rango.
+
+**¿Prim o Kruskal?** Depende de la densidad del grafo. Kruskal paga O(E log E)
+por ordenar todas las rutas. En un grafo ralo eso es poco, pero en uno denso (E
+cerca de V²) son O(V² log V), y ahí conviene Prim con arreglos, que es O(V²). En
+grafos ralos, Prim con heap y Kruskal andan parecido. La Ruta del Temple es rala
+(E = 36, V = 20, V² = 400), así que sirve cualquiera de los dos; Kruskal tiene la
+ventaja de que no necesita una ciudad de partida.
 
 ---
 

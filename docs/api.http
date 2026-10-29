@@ -5,14 +5,14 @@ GET http://localhost:8080/api/grafo/resumen
 GET http://localhost:8080/api/grafo/dfs?origen=PAR
 GET http://localhost:8080/api/grafo/bfs?origen=PAR
 
-### Caminos mínimos    (esperado: A->C = 7, A->H = 20)
-GET http://localhost:8080/api/grafo/dijkstra?origen=A&destino=C
-GET http://localhost:8080/api/grafo/dijkstra?origen=A&destino=H
+### Caminos mínimos    (esperado: PAR->JER = 26 por LYO MRS ROM BRI ATE ROD CHI; PAR->ROM = 9)
+GET http://localhost:8080/api/grafo/dijkstra?origen=PAR&destino=JER
+GET http://localhost:8080/api/grafo/dijkstra?origen=PAR&destino=ROM
 GET http://localhost:8080/api/grafo/floyd
-GET http://localhost:8080/api/grafo/ucs?origen=A&destino=H
+GET http://localhost:8080/api/grafo/ucs?origen=PAR&destino=JER
 
-### Arbol de recubrimiento minimo    (esperado: 7 aristas, costo total 27)
-GET http://localhost:8080/api/grafo/prim?origen=A
+### Arbol de recubrimiento minimo    (esperado: 19 aristas, costo total 53)
+GET http://localhost:8080/api/grafo/prim?origen=PAR
 GET http://localhost:8080/api/grafo/kruskal
 
 ### Ordenamiento
