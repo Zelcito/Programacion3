@@ -3,6 +3,9 @@ package uade.prog3.tpo.algorithm;
 import org.springframework.stereotype.Component;
 import uade.prog3.tpo.service.Grafo;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -30,7 +33,22 @@ public class Recorridos {
      * @return lista de ids en orden de visita
      */
     public List<String> dfs(Grafo grafo, String origenId) {
-        throw new PendienteDeImplementar("DFS");
+        int origen = grafo.indiceDe(origenId);
+        boolean[] visitado = new boolean[grafo.cantidadVertices()];
+        List<String> orden = new ArrayList<>();
+        dfsDesde(grafo, origen, visitado, orden);
+        return orden;
+    }
+
+    /** Visita u y baja por cada vecino no visitado antes de pasar al siguiente. */
+    private void dfsDesde(Grafo grafo, int u, boolean[] visitado, List<String> orden) {
+        visitado[u] = true;
+        orden.add(grafo.idDe(u));
+        for (Grafo.Arista a : grafo.vecinos(u)) {
+            if (!visitado[a.destino()]) {
+                dfsDesde(grafo, a.destino(), visitado, orden);
+            }
+        }
     }
 
     /**
@@ -47,6 +65,24 @@ public class Recorridos {
      * en cantidad de aristas pero NO en costo cuando el grafo es ponderado.
      */
     public List<String> bfs(Grafo grafo, String origenId) {
-        throw new PendienteDeImplementar("BFS");
+        int origen = grafo.indiceDe(origenId);
+        boolean[] visitado = new boolean[grafo.cantidadVertices()];
+        List<String> orden = new ArrayList<>();
+        Deque<Integer> cola = new ArrayDeque<>();
+
+        visitado[origen] = true;      // marcar AL ENCOLAR: cada vertice entra una sola vez
+        cola.add(origen);
+
+        while (!cola.isEmpty()) {
+            int u = cola.poll();
+            orden.add(grafo.idDe(u));
+            for (Grafo.Arista a : grafo.vecinos(u)) {
+                if (!visitado[a.destino()]) {
+                    visitado[a.destino()] = true;
+                    cola.add(a.destino());
+                }
+            }
+        }
+        return orden;
     }
 }

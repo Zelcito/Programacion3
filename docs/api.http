@@ -2,8 +2,8 @@
 GET http://localhost:8080/api/grafo/resumen
 
 ### Recorridos
-GET http://localhost:8080/api/grafo/dfs?origen=A
-GET http://localhost:8080/api/grafo/bfs?origen=A
+GET http://localhost:8080/api/grafo/dfs?origen=PAR
+GET http://localhost:8080/api/grafo/bfs?origen=PAR
 
 ### Caminos mínimos    (esperado: A->C = 7, A->H = 20)
 GET http://localhost:8080/api/grafo/dijkstra?origen=A&destino=C

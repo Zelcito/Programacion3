@@ -10,29 +10,121 @@ import uade.prog3.tpo.model.Nodo;
 import uade.prog3.tpo.repository.ItemRepository;
 import uade.prog3.tpo.repository.NodoRepository;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Carga un grafo chico de ejemplo para que la aplicacion sea probable
- * apenas se levanta, sin tener que cargar datos a mano.
+ * Carga el dominio del grupo, La Ruta del Temple, en Neo4j (hito 4).
  *
- * El dominio es DELIBERADAMENTE generico (nodos A..H). Cada grupo lo
- * reemplaza por el suyo y pone app.seed.enabled=false, o bien reescribe
- * esta clase con sus propios datos.
+ * Reemplaza al grafo de ejemplo del scaffold (nodos A..H): si la base tiene
+ * datos pero no tiene Jerusalen, se borra todo y se carga el dominio.
+ * Si Jerusalen ya esta, la carga no se repite.
  *
- * El grafo elegido tiene, a proposito:
- *   - 8 vertices y 12 aristas: chico para verificar a mano, grande para
- *     que los algoritmos no den resultados triviales
- *   - todos los costos positivos, para que Dijkstra sea aplicable
- *   - es conexo, para que Prim y Kruskal tengan solucion
- *   - hay al menos un camino donde el mas corto NO es el directo, para
- *     que se note la relajacion de aristas
+ * Los datos son los mismos del README:
+ *   - 20 ciudades del Mediterraneo de 1129
+ *   - 36 rutas con su costo en jornadas, todos enteros positivos
+ *   - 9 provisiones para una mochila de 15 kg
+ *
+ * Cada ruta se guarda UNA sola vez en Neo4j, con la direccion de la tabla.
+ * El grafo del dominio es no dirigido: los endpoints lo cargan con
+ * cargar(false) y Grafo agrega la arista inversa en memoria.
  */
 @Component
 @ConditionalOnProperty(name = "app.seed.enabled", havingValue = "true")
 public class CargaInicial implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(CargaInicial.class);
+
+    /** Ciudad destino del peregrino. Si esta en la base, el dominio ya fue cargado. */
+    public static final String DESTINO = "JER";
+
+    public record Ciudad(String id, String nombre, String tipo) { }
+
+    public record Ruta(String origen, String destino, int jornadas) { }
+
+    public static final List<Ciudad> CIUDADES = List.of(
+            new Ciudad("PAR", "París", "CAPITAL"),
+            new Ciudad("TRO", "Troyes", "CIUDAD"),
+            new Ciudad("LYO", "Lyon", "CIUDAD"),
+            new Ciudad("BCN", "Barcelona", "PUERTO"),
+            new Ciudad("MRS", "Marsella", "PUERTO"),
+            new Ciudad("GEN", "Génova", "PUERTO"),
+            new Ciudad("VEN", "Venecia", "PUERTO"),
+            new Ciudad("ROM", "Roma", "CAPITAL"),
+            new Ciudad("PAL", "Palermo", "PUERTO"),
+            new Ciudad("BRI", "Brindisi", "PUERTO"),
+            new Ciudad("TES", "Tesalónica", "PUERTO"),
+            new Ciudad("ATE", "Atenas", "PUERTO"),
+            new Ciudad("CON", "Constantinopla", "CAPITAL"),
+            new Ciudad("ICO", "Iconio", "CIUDAD"),
+            new Ciudad("CRE", "Creta", "PUERTO"),
+            new Ciudad("ROD", "Rodas", "PUERTO"),
+            new Ciudad("CHI", "Chipre", "PUERTO"),
+            new Ciudad("ANT", "Antioquía", "CIUDAD"),
+            new Ciudad("TRI", "Trípoli", "PUERTO"),
+            new Ciudad(DESTINO, "Jerusalén", "DESTINO")
+    );
+
+    /** Mismo orden que la tabla de rutas del README. El costo esta en jornadas. */
+    public static final List<Ruta> RUTAS = List.of(
+            new Ruta("PAR", "TRO", 2),
+            new Ruta("PAR", "LYO", 3),
+            new Ruta("TRO", "LYO", 2),
+            new Ruta("LYO", "MRS", 2),
+            new Ruta("LYO", "GEN", 4),
+            new Ruta("MRS", "BCN", 3),
+            new Ruta("MRS", "GEN", 3),
+            new Ruta("BCN", "PAL", 6),
+            new Ruta("MRS", "ROM", 4),
+            new Ruta("GEN", "VEN", 3),
+            new Ruta("GEN", "ROM", 3),
+            new Ruta("VEN", "ROM", 3),
+            new Ruta("ROM", "PAL", 3),
+            new Ruta("ROM", "BRI", 4),
+            new Ruta("VEN", "BRI", 4),
+            new Ruta("PAL", "CRE", 7),
+            new Ruta("PAL", "BRI", 3),
+            new Ruta("BRI", "TES", 5),
+            new Ruta("BRI", "ATE", 4),
+            new Ruta("TES", "ATE", 3),
+            new Ruta("TES", "CON", 4),
+            new Ruta("ATE", "CRE", 2),
+            new Ruta("ATE", "ROD", 3),
+            new Ruta("ATE", "CON", 4),
+            new Ruta("CON", "ICO", 4),
+            new Ruta("CON", "ROD", 4),
+            new Ruta("CRE", "ROD", 2),
+            new Ruta("ROD", "CHI", 3),
+            new Ruta("ICO", "ANT", 4),
+            new Ruta("ICO", "ROD", 4),
+            new Ruta("CHI", "TRI", 2),
+            new Ruta("CHI", "ANT", 3),
+            new Ruta("ANT", "TRI", 2),
+            new Ruta("TRI", DESTINO, 3),
+            new Ruta("CHI", DESTINO, 3),
+            new Ruta("CRE", "CHI", 5)
+    );
+
+    /**
+     * Provisiones para la mochila de 15 kg: peso en kg, valor en jornadas de viveres.
+     *
+     * Calibrado a proposito: greedy por valor/peso junta 19 jornadas en 13 kg,
+     * mientras que el optimo con programacion dinamica es {PAN, CAR, ODR, VIN}
+     * con 22 jornadas en 15 kg. Es el contraejemplo del hito 6.
+     */
+    public static final List<Item> PROVISIONES = List.of(
+            new Item("PAN", "Pan de centeno", 2, 2, null),
+            new Item("CAR", "Carne salada", 3, 6, null),
+            new Item("QUE", "Queso curado", 4, 5, null),
+            new Item("ODR", "Odre de agua", 2, 4, null),
+            new Item("VIN", "Vino aguado", 8, 10, null),
+            new Item("REL", "Reliquia santa", 4, 2, null),
+            new Item("SAL", "Salterio", 2, 2, null),
+            new Item("ESP", "Espada", 5, 3, null),
+            new Item("UNG", "Ungüentos", 3, 2, null)
+    );
 
     private final NodoRepository nodoRepository;
     private final ItemRepository itemRepository;
@@ -44,52 +136,33 @@ public class CargaInicial implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        if (nodoRepository.count() > 0) {
-            log.info("La base ya tiene datos. No se ejecuta la carga inicial.");
+        if (nodoRepository.existsById(DESTINO)) {
+            log.info("La Ruta del Temple ya esta cargada. No se ejecuta la carga inicial.");
             return;
         }
 
-        Nodo a = new Nodo("A", "Nodo A", "CENTRO", 0);
-        Nodo b = new Nodo("B", "Nodo B", "PUNTO", 12);
-        Nodo c = new Nodo("C", "Nodo C", "PUNTO", 8);
-        Nodo d = new Nodo("D", "Nodo D", "PUNTO", 15);
-        Nodo e = new Nodo("E", "Nodo E", "PUNTO", 6);
-        Nodo f = new Nodo("F", "Nodo F", "PUNTO", 20);
-        Nodo g = new Nodo("G", "Nodo G", "PUNTO", 9);
-        Nodo h = new Nodo("H", "Nodo H", "PUNTO", 4);
+        if (nodoRepository.count() > 0 || itemRepository.count() > 0) {
+            log.info("La base tiene datos que no son del dominio (grafo de ejemplo). Se borran.");
+            nodoRepository.deleteAll();
+            itemRepository.deleteAll();
+        }
 
-        // El camino directo A->C cuesta 9, pero A->B->C cuesta 4+3=7.
-        // Sirve para verificar que la relajacion de aristas este bien hecha.
-        a.conectar(b, 4);
-        a.conectar(c, 9);
-        b.conectar(c, 3);
-        b.conectar(d, 7);
-        c.conectar(d, 2);
-        c.conectar(e, 11);
-        d.conectar(e, 5);
-        d.conectar(f, 8);
-        e.conectar(f, 6);
-        e.conectar(g, 10);
-        f.conectar(h, 3);
-        g.conectar(h, 4);
+        Map<String, Nodo> porId = new HashMap<>();
+        List<Nodo> nodos = new ArrayList<>();
+        for (Ciudad c : CIUDADES) {
+            Nodo n = new Nodo(c.id(), c.nombre(), c.tipo(), 0);
+            porId.put(c.id(), n);
+            nodos.add(n);
+        }
+        for (Ruta r : RUTAS) {
+            porId.get(r.origen()).conectar(porId.get(r.destino()), r.jornadas());
+        }
 
-        nodoRepository.saveAll(List.of(a, b, c, d, e, f, g, h));
+        nodoRepository.saveAll(nodos);
+        itemRepository.saveAll(PROVISIONES);
 
-        // Items para los problemas de seleccion bajo restriccion.
-        //
-        // Calibrado a proposito: con capacidad 10, greedy por ratio valor/peso
-        // elige {I4, I2} y obtiene 90, mientras que el optimo real es {I4, I5}
-        // con 105. Es el contraejemplo que se necesita para comparar greedy
-        // contra programacion dinamica.
-        itemRepository.saveAll(List.of(
-                new Item("I1", "Item 1", 5, 10, "A"),
-                new Item("I2", "Item 2", 4, 40, "B"),
-                new Item("I3", "Item 3", 6, 30, "C"),
-                new Item("I4", "Item 4", 3, 50, "D"),
-                new Item("I5", "Item 5", 7, 55, "E")
-        ));
-
-        log.info("Carga inicial completada: 8 nodos, 12 aristas, 5 items.");
-        log.info("Para desactivarla: app.seed.enabled=false");
+        log.info("La Ruta del Temple cargada: {} ciudades, {} rutas, {} provisiones.",
+                CIUDADES.size(), RUTAS.size(), PROVISIONES.size());
+        log.info("Para desactivar la carga: app.seed.enabled=false");
     }
 }
