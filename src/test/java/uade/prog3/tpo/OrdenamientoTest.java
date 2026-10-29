@@ -115,6 +115,14 @@ class OrdenamientoTest {
     }
 
     @Test
+    void ordenanCualquierTipoNoSoloItems() {
+        // Kruskal reutiliza mergeSort para ordenar aristas por costo
+        List<Integer> entrada = List.of(5, 3, 8, 1, 3);
+        assertEquals(List.of(1, 3, 3, 5, 8), ordenamiento.quickSort(entrada, Comparator.naturalOrder()));
+        assertEquals(List.of(1, 3, 3, 5, 8), ordenamiento.mergeSort(entrada, Comparator.naturalOrder()));
+    }
+
+    @Test
     void quickSortYMergeSortCoincidenEnUnaListaGrande() {
         Random azar = new Random(42);
         List<Item> entrada = new ArrayList<>();

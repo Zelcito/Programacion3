@@ -1,7 +1,6 @@
 package uade.prog3.tpo.algorithm;
 
 import org.springframework.stereotype.Component;
-import uade.prog3.tpo.model.Item;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -17,7 +16,7 @@ import java.util.List;
 public class Ordenamiento {
 
     /**
-     * QuickSort sobre una lista de items.
+     * QuickSort sobre una lista de cualquier tipo (items, aristas, ...).
      *
      * Requisitos:
      *   - implementar la particion (partition) a mano
@@ -37,13 +36,13 @@ public class Ordenamiento {
      * Particion: Lomuto. Espacio extra O(n) por la copia de la lista,
      * mas O(log n) promedio de pila por la recursion.
      */
-    public List<Item> quickSort(List<Item> items, Comparator<Item> criterio) {
-        List<Item> copia = new ArrayList<>(items);
+    public <T> List<T> quickSort(List<T> items, Comparator<T> criterio) {
+        List<T> copia = new ArrayList<>(items);
         quickSort(copia, 0, copia.size() - 1, criterio);
         return copia;
     }
 
-    private void quickSort(List<Item> lista, int izq, int der, Comparator<Item> criterio) {
+    private <T> void quickSort(List<T> lista, int izq, int der, Comparator<T> criterio) {
         if (izq >= der) {
             return; // rango de 0 o 1 elementos: ya esta ordenado
         }
@@ -57,10 +56,10 @@ public class Ordenamiento {
      * iguales al pivote, y a la derecha los mayores. El pivote queda en su
      * posicion definitiva. O(n) sobre el rango [izq, der].
      */
-    private int particionar(List<Item> lista, int izq, int der, Comparator<Item> criterio) {
+    private <T> int particionar(List<T> lista, int izq, int der, Comparator<T> criterio) {
         int medio = izq + (der - izq) / 2;
         swap(lista, medio, der);
-        Item pivote = lista.get(der);
+        T pivote = lista.get(der);
 
         int i = izq - 1; // fin de la zona de elementos <= pivote
         for (int j = izq; j < der; j++) {
@@ -73,14 +72,14 @@ public class Ordenamiento {
         return i + 1;
     }
 
-    private void swap(List<Item> lista, int a, int b) {
-        Item tmp = lista.get(a);
+    private <T> void swap(List<T> lista, int a, int b) {
+        T tmp = lista.get(a);
         lista.set(a, lista.get(b));
         lista.set(b, tmp);
     }
 
     /**
-     * MergeSort sobre una lista de items.
+     * MergeSort sobre una lista de cualquier tipo (items, aristas, ...).
      *
      * Requisitos:
      *   - implementar la mezcla (merge) a mano
@@ -100,19 +99,19 @@ public class Ordenamiento {
      *
      * Espacio extra: O(n) por las listas auxiliares de la mezcla.
      */
-    public List<Item> mergeSort(List<Item> items, Comparator<Item> criterio) {
+    public <T> List<T> mergeSort(List<T> items, Comparator<T> criterio) {
         if (items.size() <= 1) {
             return new ArrayList<>(items); // caso base, y tambien copia la entrada
         }
         int medio = items.size() / 2;
-        List<Item> izquierda = mergeSort(items.subList(0, medio), criterio);
-        List<Item> derecha = mergeSort(items.subList(medio, items.size()), criterio);
+        List<T> izquierda = mergeSort(items.subList(0, medio), criterio);
+        List<T> derecha = mergeSort(items.subList(medio, items.size()), criterio);
         return mezclar(izquierda, derecha, criterio);
     }
 
     /** Une dos listas ya ordenadas en una nueva lista ordenada. O(n). */
-    private List<Item> mezclar(List<Item> izquierda, List<Item> derecha, Comparator<Item> criterio) {
-        List<Item> resultado = new ArrayList<>(izquierda.size() + derecha.size());
+    private <T> List<T> mezclar(List<T> izquierda, List<T> derecha, Comparator<T> criterio) {
+        List<T> resultado = new ArrayList<>(izquierda.size() + derecha.size());
         int i = 0;
         int j = 0;
         while (i < izquierda.size() && j < derecha.size()) {
