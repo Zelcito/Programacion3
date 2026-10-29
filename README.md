@@ -254,6 +254,9 @@ ejemplos de `docs/ENDPOINTS.md` usan siempre los costos base de esta tabla.
 - **Claude (Claude Code, Anthropic):** se usó para diseñar el prototipo del juego
   en HTML, para armar los datos del dominio (ciudades, rutas y provisiones) y para
   el diseño estético del README.
+- **Claude (Claude Code, Anthropic):** se usó en el hito 4 como apoyo para pasar
+  el dominio a `CargaInicial`, implementar BFS y DFS, sus tests y sus fichas en
+  `docs/ENDPOINTS.md`.
 
 ---
 
@@ -269,12 +272,19 @@ export $(cat .env | xargs)
 
 # 3. Verificar que la base responde
 curl "http://localhost:8080/api/grafo/resumen"
-# -> {"vertices":8,"aristas":12,"dirigido":true,"ids":["A","B",...]}
+# -> {"vertices":20,"aristas":36,"dirigido":false,"ids":["PAR","TRO",...]}
 
-# 4. Probar un algoritmo sin implementar
-curl "http://localhost:8080/api/grafo/dfs?origen=A"
-# -> 501 {"estado":"PENDIENTE","detalle":"Todavia no esta implementado: DFS"}
+# 4. Probar un recorrido
+curl "http://localhost:8080/api/grafo/bfs?origen=PAR"
+# -> ["PAR","TRO","LYO","MRS","GEN",...,"JER"]
+
+# 5. Probar un algoritmo sin implementar
+curl "http://localhost:8080/api/grafo/prim?origen=PAR"
+# -> 501 {"estado":"PENDIENTE","detalle":"Todavia no esta implementado: Prim"}
 ```
+
+Al arrancar, `CargaInicial` carga La Ruta del Temple. Si la base todavía tiene
+el grafo de ejemplo del scaffold (nodos A..H), lo borra y carga el dominio.
 
 Si el paso 3 responde, la infraestructura está bien y todo lo que queda es
 escribir algoritmos.
@@ -295,28 +305,29 @@ seed/           datos de ejemplo
 | Método | Endpoint | Algoritmo | Puntos |
 |---|---|---|---|
 | GET | `/api/grafo/resumen` | — (verificación) | — |
-| GET | `/api/grafo/dfs?origen=A` | DFS | 2 (con BFS) |
-| GET | `/api/grafo/bfs?origen=A` | BFS | |
-| GET | `/api/grafo/dijkstra?origen=A&destino=H` | Dijkstra | 3 (con Prim y Kruskal) |
-| GET | `/api/grafo/prim?origen=A` | Prim | |
+| GET | `/api/grafo/dfs?origen=PAR` | DFS | 2 (con BFS) |
+| GET | `/api/grafo/bfs?origen=PAR` | BFS | |
+| GET | `/api/grafo/dijkstra?origen=PAR&destino=JER` | Dijkstra | 3 (con Prim y Kruskal) |
+| GET | `/api/grafo/prim?origen=PAR` | Prim | |
 | GET | `/api/grafo/kruskal` | Kruskal | |
 | GET | `/api/grafo/floyd` | Floyd-Warshall | 1 (con mochila 0/1) |
-| GET | `/api/grafo/ucs?origen=A&destino=H` | UCS | opcional |
-| GET | `/api/seleccion/greedy?capacidad=10` | Greedy | 1 |
-| GET | `/api/seleccion/dinamica?capacidad=10` | Mochila 0/1 con PD | 1 |
+| GET | `/api/grafo/ucs?origen=PAR&destino=JER` | UCS | opcional |
+| GET | `/api/seleccion/greedy?capacidad=15` | Greedy | 1 |
+| GET | `/api/seleccion/dinamica?capacidad=15` | Mochila 0/1 con PD | 1 |
 | GET | `/api/seleccion/quicksort?criterio=ratio` | QuickSort | 1 (con MergeSort) |
 | GET | `/api/seleccion/mergesort?criterio=peso` | MergeSort | |
-| GET | `/api/grafo/rutas?origen=A&destino=H&costoMaximo=30` | Backtracking | 1 |
+| GET | `/api/grafo/rutas?origen=PAR&destino=JER&costoMaximo=30` | Backtracking | 1 |
 | GET | `/api/seleccion/repartir?contenedores=3` | Branch & Bound | 1 |
 
-Los ejemplos usan los ids del grafo de ejemplo del scaffold. Cuando el dominio
-esté cargado (hito 4) pasan a ser los de la tabla de ciudades, por ejemplo
-`/api/grafo/dijkstra?origen=PAR&destino=JER`.
+Los ids son los de la tabla de ciudades. Todos los endpoints de grafos cargan
+el grafo como **no dirigido**: Neo4j guarda cada ruta una vez y el grafo en
+memoria agrega la inversa.
 
 ## El grafo de ejemplo del scaffold
 
-Es el grafo que trae la carga inicial hasta que se reemplace por el dominio en
-el hito 4.
+Era el grafo que traía la carga inicial antes del hito 4. Ya no se carga en
+Neo4j, pero se deja como referencia porque `GUIA-TPO.md` verifica Dijkstra, Prim
+y Kruskal contra él.
 
 ```
       4        3
