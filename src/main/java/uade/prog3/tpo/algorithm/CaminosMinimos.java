@@ -7,6 +7,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
@@ -49,6 +50,15 @@ public class CaminosMinimos {
         int destino = grafo.indiceDe(destinoId);
         validarSinCostosNegativos(grafo);
 
+        ResultadoDijkstra resultado = dijkstraDesde(grafo, origen);
+        if (resultado.dist()[destino] == Grafo.INFINITO) {
+            throw new IllegalStateException("No hay ningun camino de " + origenId + " a " + destinoId);
+        }
+        return new Camino(reconstruir(grafo, resultado.predecesor(), destino), resultado.dist()[destino]);
+    }
+
+    /** Mismo recorrido completo para el endpoint y para la comparacion desde cada origen. */
+    private ResultadoDijkstra dijkstraDesde(Grafo grafo, int origen) {
         int n = grafo.cantidadVertices();
         double[] dist = new double[n];
         int[] predecesor = new int[n];
@@ -60,17 +70,25 @@ public class CaminosMinimos {
 
         PriorityQueue<EnCola> cola = new PriorityQueue<>(Comparator.comparingDouble(EnCola::distancia));
         cola.add(new EnCola(origen, 0));
+        long extracciones = 0;
+        long expandidos = 0;
+        long intentos = 0;
+        long mejoras = 0;
 
         while (!cola.isEmpty()) {
             EnCola actual = cola.poll();
+            extracciones++;
             int u = actual.vertice();
             if (actual.distancia() > dist[u]) {
                 continue; // entrada vieja: u ya salio antes con una distancia menor
             }
             // greedy: u es el no fijado mas cercano y con costos >= 0 nadie lo puede mejorar
+            expandidos++;
             for (Grafo.Arista a : grafo.vecinos(u)) {
+                intentos++;
                 int v = a.destino();
                 if (dist[u] + a.costo() < dist[v]) { // RELAJACION
+                    mejoras++;
                     dist[v] = dist[u] + a.costo();
                     predecesor[v] = u;
                     cola.add(new EnCola(v, dist[v]));
@@ -78,11 +96,20 @@ public class CaminosMinimos {
             }
         }
 
-        if (dist[destino] == Grafo.INFINITO) {
-            throw new IllegalStateException("No hay ningun camino de " + origenId + " a " + destinoId);
-        }
-        return new Camino(reconstruir(grafo, predecesor, destino), dist[destino]);
+        return new ResultadoDijkstra(dist, predecesor,
+                new MetricasDijkstra(extracciones, expandidos, intentos, mejoras));
     }
+
+    private record ResultadoDijkstra(double[] dist, int[] predecesor, MetricasDijkstra metricas) { }
+
+    public record MetricasDijkstra(long extracciones, long nodosExpandidos,
+                                   long intentos, long mejoras) { }
+
+    public record ResultadoFloyd(Map<String, Double> distancias, long iteraciones,
+                                 long intentos, long mejoras) { }
+
+    public record Comparacion(ResultadoFloyd floyd, Map<String, Double> distanciasDijkstra,
+                              MetricasDijkstra dijkstra, int ejecucionesDijkstra) { }
 
     /** Vertice en la cola de prioridad con la distancia que tenia al encolarlo. */
     private record EnCola(int vertice, double distancia) { }
@@ -121,7 +148,73 @@ public class CaminosMinimos {
      * Devuelve un mapa "origen->destino" con el costo minimo de cada par.
      */
     public Map<String, Double> floydWarshall(Grafo grafo) {
-        throw new PendienteDeImplementar("Floyd-Warshall");
+        return floydConMetricas(grafo).distancias();
+    }
+
+    /** Cuenta ternas, candidatos alcanzables y mejoras por separado; Floyd no expande nodos. */
+    public ResultadoFloyd floydConMetricas(Grafo grafo) {
+        double[][] dist = grafo.matrizDeAdyacencia();
+        int n = grafo.cantidadVertices();
+        long iteraciones = 0;
+        long intentos = 0;
+        long mejoras = 0;
+        for (int k = 0; k < n; k++) {
+            for (int i = 0; i < n; i++) {
+                for (int j = 0; j < n; j++) {
+                    iteraciones++;
+                    if (dist[i][k] == Grafo.INFINITO || dist[k][j] == Grafo.INFINITO) {
+                        continue; // no existe un camino candidato pasando por k
+                    }
+                    intentos++;
+                    // PD: permitir k como intermedio mejora o conserva la solucion anterior
+                    if (dist[i][k] + dist[k][j] < dist[i][j]) {
+                        dist[i][j] = dist[i][k] + dist[k][j];
+                        mejoras++;
+                    }
+                }
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            if (dist[i][i] < 0) {
+                throw new IllegalStateException("El grafo tiene un ciclo de costo negativo");
+            }
+        }
+        Map<String, Double> distancias = new LinkedHashMap<>();
+        for (int i = 0; i < n; i++) {
+            agregarDistancias(grafo, i, dist[i], distancias);
+        }
+        return new ResultadoFloyd(distancias, iteraciones, intentos, mejoras);
+    }
+
+    /** Ejecuta Floyd una vez y el mismo Dijkstra del endpoint V veces, sin consultar la base. */
+    public Comparacion compararConDijkstra(Grafo grafo) {
+        validarSinCostosNegativos(grafo); // la comparacion exige el dominio valido de ambos
+        ResultadoFloyd floyd = floydConMetricas(grafo);
+        Map<String, Double> distancias = new LinkedHashMap<>();
+        long extracciones = 0;
+        long expandidos = 0;
+        long intentos = 0;
+        long mejoras = 0;
+        for (int origen = 0; origen < grafo.cantidadVertices(); origen++) {
+            ResultadoDijkstra resultado = dijkstraDesde(grafo, origen);
+            agregarDistancias(grafo, origen, resultado.dist(), distancias);
+            MetricasDijkstra metricas = resultado.metricas();
+            extracciones += metricas.extracciones();
+            expandidos += metricas.nodosExpandidos();
+            intentos += metricas.intentos();
+            mejoras += metricas.mejoras();
+        }
+        return new Comparacion(floyd, distancias,
+                new MetricasDijkstra(extracciones, expandidos, intentos, mejoras), grafo.cantidadVertices());
+    }
+
+    /** Omitir inalcanzables evita Infinity, que no es un numero valido en JSON. */
+    private void agregarDistancias(Grafo grafo, int origen, double[] dist, Map<String, Double> resultado) {
+        for (int destino = 0; destino < dist.length; destino++) {
+            if (dist[destino] != Grafo.INFINITO) {
+                resultado.put(grafo.idDe(origen) + "->" + grafo.idDe(destino), dist[destino]);
+            }
+        }
     }
 
     /**
