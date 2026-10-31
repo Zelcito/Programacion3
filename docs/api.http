@@ -23,6 +23,9 @@ GET http://localhost:8080/api/seleccion/mergesort?criterio=peso
 GET http://localhost:8080/api/seleccion/greedy?capacidad=15
 GET http://localhost:8080/api/seleccion/dinamica?capacidad=15
 
-### Backtracking y Branch and Bound
-GET http://localhost:8080/api/grafo/rutas?origen=A&destino=H&costoMaximo=30&saltosMaximos=6
+### Backtracking    (esperado: 86 rutas; con costoMaximo=26 solo la de Dijkstra; con 25 ninguna)
+GET http://localhost:8080/api/grafo/rutas?origen=PAR&destino=JER&costoMaximo=30&saltosMaximos=10
+GET http://localhost:8080/api/grafo/rutas?origen=PAR&destino=JER&costoMaximo=26&saltosMaximos=10
+
+### Branch and Bound
 GET http://localhost:8080/api/seleccion/repartir?contenedores=3
