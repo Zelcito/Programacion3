@@ -254,13 +254,7 @@ ejemplos de `docs/ENDPOINTS.md` usan siempre los costos base de esta tabla.
 - **Claude (Claude Code, Anthropic):** se usó para diseñar el prototipo del juego
   en HTML, para armar los datos del dominio (ciudades, rutas y provisiones) y para
   el diseño estético del README.
-- **Claude (Claude Code, Anthropic):** se usó en el hito 4 como apoyo para pasar
-  el dominio a `CargaInicial`, implementar BFS y DFS, sus tests y sus fichas en
-  `docs/ENDPOINTS.md`.
-- **Claude (Claude Code, Anthropic):** se usó en el hito 5 como apoyo para
-  implementar Dijkstra, Prim y Kruskal (con Union-Find), hacer genérico el
-  ordenamiento para que Kruskal reutilice el MergeSort del hito 2, escribir sus
-  tests y sus fichas, y verificar los resultados contra un cálculo a mano.
+  Tambien se uso como apoyo a la hora de implementar los algoritmos necesarios. Para indicar los errores en el codigo, y para escribir los test necesarios para comprobar que los algoritmos funcionan correctamente.
 
 ---
 

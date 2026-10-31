@@ -19,9 +19,9 @@ GET http://localhost:8080/api/grafo/kruskal
 GET http://localhost:8080/api/seleccion/quicksort?criterio=ratio
 GET http://localhost:8080/api/seleccion/mergesort?criterio=peso
 
-### Seleccion    (comparar: greedy no deberia igualar a dinamica)
-GET http://localhost:8080/api/seleccion/greedy?capacidad=10
-GET http://localhost:8080/api/seleccion/dinamica?capacidad=10
+### Mochila 0/1    (esperado con 15 kg: greedy = 19 jornadas en 13 kg; dinamica = 22 jornadas en 15 kg)
+GET http://localhost:8080/api/seleccion/greedy?capacidad=15
+GET http://localhost:8080/api/seleccion/dinamica?capacidad=15
 
 ### Backtracking y Branch and Bound
 GET http://localhost:8080/api/grafo/rutas?origen=A&destino=H&costoMaximo=30&saltosMaximos=6
