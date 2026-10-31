@@ -185,6 +185,115 @@ marcada `// RELAJACION`.
 
 ---
 
+### GET /api/grafo/floyd
+
+Calcula las jornadas mínimas entre todas las ciudades de La Ruta del Temple.
+Devuelve un mapa con claves `ORIGEN->DESTINO`, incluyendo cada ciudad consigo
+misma. El dominio tiene 400 pares alcanzables, diagonal cero y costos simétricos.
+
+**Parámetros:** ninguno. Si existe un ciclo de costo negativo, devuelve 422:
+`{"estado":"ERROR","detalle":"El grafo tiene un ciclo de costo negativo"}`.
+El algoritmo admite aristas negativas si no forman ciclos negativos. En un
+grafo no dirigido, una arista negativa ya permite un ciclo negativo de ida y vuelta.
+Los pares inalcanzables se omiten: no se serializa `Infinity`. Un grafo vacío devuelve `{}`.
+
+**Ejemplo:** `GET /api/grafo/floyd`
+
+**Respuesta** (extracto de las 400 entradas, verificado con los tests):
+```json
+{
+  "PAR->PAR": 0.0,
+  "PAR->ROM": 9.0,
+  "PAR->JER": 26.0,
+  "ROM->JER": 17.0,
+  "JER->PAR": 26.0,
+  "JER->JER": 0.0
+}
+```
+PAR → LYO → MRS → ROM cuesta 3 + 2 + 4 = 9.
+ROM → BRI → ATE → ROD → CHI → JER cuesta 4 + 4 + 3 + 3 + 3 = 17.
+Uniendo esos tramos, PAR → JER cuesta 26. El diámetro (mayor distancia mínima)
+es 26. `FloydWarshallTest` contrasta los 400 costos con el Dijkstra público.
+
+**Programación dinámica:** sea D(k,i,j) el costo mínimo de i a j usando solo
+vértices de índices 0..k como intermedios. La base D(-1,i,j) es la matriz de
+adyacencia: cero en la diagonal, costo de la menor arista directa o infinito.
+
+`D(k,i,j) = min(D(k-1,i,j), D(k-1,i,k) + D(k-1,k,j))`
+
+Se conserva el mejor camino anterior o se mejora pasando por k. Por eso **k va
+afuera**: hay que completar una etapa para todos los pares antes de permitir
+el siguiente intermedio. Con k adentro se mezclan etapas y pueden faltar caminos.
+Sin ciclos negativos, la fila y columna de k no mejoran al pasar por k, así que
+una sola matriz alcanza para actualizar en el lugar. Al terminar, una diagonal
+negativa revela un recorrido cerrado que reduce su costo cada vez que se repite:
+no existe un mínimo finito y se rechaza el resultado completo.
+
+**Complejidad:** O(V³) en tiempo para el grafo simple del dominio.
+- Crear la matriz cuesta O(V² + E).
+- Los tres bucles recorren V³ ternas y cada paso hace trabajo constante.
+- Revisar la diagonal cuesta O(V); armar el mapa, O(V²).
+
+**Espacio:** O(V²), por la matriz y el mapa de hasta V² pares.
+
+**Estructura usada:** matriz `double[][]` de `grafo.matrizDeAdyacencia()` y
+`LinkedHashMap` para recorrer los pares en el orden de los vértices. Todo el
+cálculo se realiza en memoria dentro de `algorithm`.
+
+**Comparación verificable con Dijkstra × V:** `CaminosMinimos.compararConDijkstra`
+ejecuta Floyd una vez y el núcleo compartido del Dijkstra existente desde cada
+origen. Cada ejecución de Dijkstra agota la cola y obtiene todos sus destinos;
+no se hacen V² ejecuciones para medirlo. La comparación rechaza costos negativos,
+porque Dijkstra no los admite. Valida los costos una vez y no reconstruye caminos;
+estos pasos no forman parte de los contadores. El endpoint de Dijkstra conserva
+sus validaciones, reconstrucción y respuesta originales.
+
+Mediciones con los vértices y rutas en el orden de `CargaInicial`, ejecutando
+`FloydWarshallTest.comparaUnaEjecucionDeFloydContraVeinteDeDijkstra`:
+
+| Métrica | Floyd (1 ejecución) | Dijkstra (20 ejecuciones) |
+|---|---:|---:|
+| Iteraciones de la terna (k,i,j) | 8000 | No aplica |
+| Extracciones de la cola (iteraciones del while) | No aplica | 437 |
+| Nodos expandidos | No aplica | 400 |
+| Intentos de relajación | 3901 | 1440 |
+| Mejoras efectivas | 468 | 417 |
+
+- **Iteración de Floyd:** cada terna, incluso si alguno de los dos tramos es
+  inalcanzable. Son exactamente 20³ = 8000.
+- **Expansión de Dijkstra:** extracción vigente seguida del recorrido de sus
+  vecinos. Son 20 ciudades por 20 orígenes = 400. Las otras 37 extracciones son
+  entradas viejas, descartadas sin expandir. Floyd actualiza celdas; no expande
+  nodos en este sentido y sus 8000 iteraciones no son 8000 expansiones.
+- **Intento:** evaluar un candidato para mejorar una distancia. Floyd lo hace
+  cuando existen ambos tramos i→k y k→j; Dijkstra, por cada arista examinada
+  desde un nodo expandido: 20 × (2 × 36) = 1440.
+- **Mejora:** el candidato es estrictamente menor y se actualiza la distancia.
+  En Dijkstra cada mejora encola una entrada; 417 + 20 orígenes = 437 extracciones.
+
+Los intentos de Floyd y las mejoras pueden variar con el orden de los datos;
+los costos finales no. Los contadores no miden tiempo: una expansión puede
+examinar varias aristas y Dijkstra también paga las operaciones del heap.
+No se deduce una proporción de velocidad dividiendo métricas diferentes.
+
+| Alternativa | Tiempo para todos los pares | Cuándo conviene |
+|---|---|---|
+| Floyd | O(V³) | Grafos densos o aristas negativas sin ciclos negativos |
+| Dijkstra × V | O(V(V + E) log V) | Grafos ralos con costos no negativos, como este dominio |
+
+Dijkstra usa O(V + E) de espacio de trabajo por ejecución; conservar todos los
+costos agrega O(V²). La comparación guarda ambas salidas para comprobar igualdad.
+El endpoint `/floyd` solo ejecuta Floyd, sin ejecutar la comparación.
+
+**Reproducir:** desde la raíz del proyecto, en PowerShell:
+```powershell
+.\mvnw.cmd test -Dtest=FloydWarshallTest
+```
+La salida muestra los contadores reales. Los tests también cubren ciclos
+negativos, grafos dirigidos, inalcanzables, aristas paralelas y costos cero.
+
+---
+
 ### GET /api/grafo/prim
 
 Árbol de recubrimiento mínimo: las rutas que conectan las 20 ciudades con el
