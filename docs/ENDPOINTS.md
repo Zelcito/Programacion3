@@ -415,13 +415,152 @@ y recursión (O(log n) de pila).
 
 ### GET /api/seleccion/greedy
 
-_(completar — incluir un caso donde greedy NO dé el óptimo)_
+Arma la mochila del mensajero de forma golosa: ordena las provisiones por
+jornadas de víveres por kg y las va metiendo mientras entren. Es rápido, pero en
+la mochila 0/1 (las provisiones no se parten) **no garantiza el óptimo**.
+
+**Función objetivo:** maximizar la suma de jornadas de víveres de las provisiones
+elegidas, sin que la suma de sus pesos supere la capacidad.
+
+**Criterio greedy:** ratio valor/peso de mayor a menor. A igual ratio, primero la
+más liviana: Queso curado y Vino aguado empatan en 1,25 y así el resultado no
+depende del orden en que Neo4j devuelva las provisiones. Como MergeSort es
+estable, si también empatan en peso (PAN y SAL) queda el orden de entrada.
+
+**Parámetros:** `capacidad` = kg que entran en la mochila. Negativa devuelve 400.
+
+**Ejemplo:** `GET /api/seleccion/greedy?capacidad=15`
+
+**Respuesta:**
+```json
+{
+  "elegidos": [
+    {"id":"ODR","nombre":"Odre de agua","peso":2.0,"valor":4.0,"nodoId":null},
+    {"id":"CAR","nombre":"Carne salada","peso":3.0,"valor":6.0,"nodoId":null},
+    {"id":"QUE","nombre":"Queso curado","peso":4.0,"valor":5.0,"nodoId":null},
+    {"id":"PAN","nombre":"Pan de centeno","peso":2.0,"valor":2.0,"nodoId":null},
+    {"id":"SAL","nombre":"Salterio","peso":2.0,"valor":2.0,"nodoId":null}
+  ],
+  "valorTotal": 19.0,
+  "pesoTotal": 13.0,
+  "tecnica": "GREEDY"
+}
+```
+
+**Caso donde greedy NO da el óptimo (la mochila de 15 kg):**
+
+| Orden | Provisión | kg | Jornadas | Ratio | Mochila | ¿Entra? |
+|---|---|---|---|---|---|---|
+| 1 | ODR | 2 | 4 | 2 | 2 kg | sí |
+| 2 | CAR | 3 | 6 | 2 | 5 kg | sí |
+| 3 | QUE | 4 | 5 | 1,25 | 9 kg | sí |
+| 4 | VIN | 8 | 10 | 1,25 | 17 kg | **no** |
+| 5 | PAN | 2 | 2 | 1 | 11 kg | sí |
+| 6 | SAL | 2 | 2 | 1 | 13 kg | sí |
+| 7 | UNG | 3 | 2 | 0,67 | 16 kg | no |
+| 8 | ESP | 5 | 3 | 0,6 | 18 kg | no |
+| 9 | REL | 4 | 2 | 0,5 | 17 kg | no |
+
+Greedy junta **19 jornadas en 13 kg**. El óptimo (ver `/api/seleccion/dinamica`)
+es **22 jornadas en 15 kg**: ODR, CAR, VIN y PAN (o SAL). Greedy pierde 3 jornadas
+porque, al tomar el Queso (4 kg), ya no le entra el Vino (8 kg, 10 jornadas), y
+termina con 2 kg libres que no puede aprovechar. Como no puede deshacer una
+elección, nunca revisa si convenía cambiar el Queso por el Vino. Con provisiones
+divisibles (mochila fraccional) el mismo criterio sí sería óptimo.
+
+**Complejidad:** O(n log n).
+- Ordenar con el MergeSort del hito 2: O(n log n).
+- Una pasada por la lista ordenada, con O(1) por provisión: O(n).
+- Total: O(n log n) + O(n) = O(n log n); domina el ordenamiento. Con n = 9 son
+  unas 30 comparaciones.
+
+**Espacio:** O(n) por la lista ordenada (MergeSort devuelve una nueva) y la lista
+de elegidos.
+
+**Estructura usada:** listas (`ArrayList`) y `Ordenamiento.mergeSort` propio con
+un comparador por ratio descendente y peso ascendente.
 
 ---
 
 ### GET /api/seleccion/dinamica
 
-_(completar — incluir la tabla dp del ejemplo)_
+Resuelve la mochila 0/1 de forma exacta con programación dinámica bottom-up y
+devuelve qué provisiones lleva, no solo cuántas jornadas suman.
+
+**Parámetros:** `capacidad` = kg (entero, porque indexa las columnas de la tabla).
+Negativa devuelve 400. Si alguna provisión tuviera un peso no entero, también 400
+(todas las del dominio pesan kg enteros).
+
+**Ejemplo:** `GET /api/seleccion/dinamica?capacidad=15`
+
+**Respuesta** (con las provisiones en el orden de la tabla del README):
+```json
+{
+  "elegidos": [
+    {"id":"PAN","nombre":"Pan de centeno","peso":2.0,"valor":2.0,"nodoId":null},
+    {"id":"CAR","nombre":"Carne salada","peso":3.0,"valor":6.0,"nodoId":null},
+    {"id":"ODR","nombre":"Odre de agua","peso":2.0,"valor":4.0,"nodoId":null},
+    {"id":"VIN","nombre":"Vino aguado","peso":8.0,"valor":10.0,"nodoId":null}
+  ],
+  "valorTotal": 22.0,
+  "pesoTotal": 15.0,
+  "tecnica": "PROGRAMACION_DINAMICA"
+}
+```
+Hay dos selecciones óptimas, porque PAN y SAL son iguales (2 kg, 2 jornadas):
+{PAN, CAR, ODR, VIN} y {CAR, ODR, VIN, SAL}. Cuál sale depende del orden en que
+lleguen las provisiones de Neo4j; el valor 22 y el peso 15 no cambian.
+
+**Recurrencia:** `dp[i][j]` = mejores jornadas usando solo las primeras i
+provisiones con j kg de capacidad.
+- `dp[0][j] = 0` (sin provisiones no hay jornadas).
+- Si la provisión i pesa más que j: `dp[i][j] = dp[i-1][j]`.
+- Si entra: `dp[i][j] = max(dp[i-1][j], dp[i-1][j - peso_i] + valor_i)`
+  (no tomarla o tomarla).
+
+**Tabla dp del ejemplo** (filas = provisiones agregadas, columnas = kg de 0 a 15):
+
+| | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| — | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| PAN (2 kg, 2) | 0 | 0 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 |
+| CAR (3 kg, 6) | 0 | 0 | 2 | 6 | 6 | 8 | 8 | 8 | 8 | 8 | 8 | 8 | 8 | 8 | 8 | 8 |
+| QUE (4 kg, 5) | 0 | 0 | 2 | 6 | 6 | 8 | 8 | 11 | 11 | 13 | 13 | 13 | 13 | 13 | 13 | 13 |
+| ODR (2 kg, 4) | 0 | 0 | 4 | 6 | 6 | 10 | 10 | 12 | 12 | 15 | 15 | 17 | 17 | 17 | 17 | 17 |
+| VIN (8 kg, 10) | 0 | 0 | 4 | 6 | 6 | 10 | 10 | 12 | 12 | 15 | 15 | 17 | 17 | 20 | 20 | **22** |
+| REL (4 kg, 2) | 0 | 0 | 4 | 6 | 6 | 10 | 10 | 12 | 12 | 15 | 15 | 17 | 17 | 20 | 20 | 22 |
+| SAL (2 kg, 2) | 0 | 0 | 4 | 6 | 6 | 10 | 10 | 12 | 12 | 15 | 15 | 17 | 17 | 20 | 20 | 22 |
+| ESP (5 kg, 3) | 0 | 0 | 4 | 6 | 6 | 10 | 10 | 12 | 12 | 15 | 15 | 17 | 17 | 20 | 20 | 22 |
+| UNG (3 kg, 2) | 0 | 0 | 4 | 6 | 6 | 10 | 10 | 12 | 12 | 15 | 15 | 17 | 17 | 20 | 20 | 22 |
+
+**Recuperación del camino** (de `dp[9][15]` hacia atrás: si el valor cambia
+respecto de la fila de arriba, la provisión se tomó y se descuentan sus kg):
+- UNG, ESP, SAL, REL: `dp[i][15] = dp[i-1][15] = 22` → no se toman.
+- VIN: `dp[5][15] = 22 ≠ dp[4][15] = 17` → **se toma**, quedan 15 − 8 = 7 kg.
+- ODR: `dp[4][7] = 12 ≠ dp[3][7] = 11` → **se toma**, quedan 5 kg.
+- QUE: `dp[3][5] = 8 = dp[2][5]` → no se toma.
+- CAR: `dp[2][5] = 8 ≠ dp[1][5] = 2` → **se toma**, quedan 2 kg.
+- PAN: `dp[1][2] = 2 ≠ dp[0][2] = 0` → **se toma**, quedan 0 kg.
+
+Resultado: PAN + CAR + ODR + VIN = 2 + 6 + 4 + 10 = 22 jornadas en 2 + 3 + 2 + 8 = 15 kg.
+
+**Complejidad:** O(n · W) en tiempo.
+- La tabla tiene (n + 1) × (W + 1) celdas y cada una se llena en O(1) mirando
+  dos celdas de la fila anterior. Con n = 9 y W = 15: 10 × 16 = 160 celdas.
+- La recuperación del camino recorre una fila por provisión: O(n).
+- Es **pseudopolinomial**: W es un número de la entrada, no una cantidad de
+  elementos. Escribirlo ocupa log W bits, así que O(n · W) es exponencial en el
+  tamaño de la entrada. Si la mochila fuera de 15.000 kg, la tabla tendría mil
+  veces más columnas aunque las provisiones fueran las mismas.
+
+**Espacio:** O(n · W) por la tabla completa. Se podría bajar a O(W) con una sola
+fila, pero entonces no se puede recuperar qué provisiones se eligieron.
+
+**Estructura usada:** matriz `double[n+1][W+1]` y un arreglo `boolean[]` para
+marcar las provisiones tomadas.
+
+**Verificación:** `SeleccionTest` compara el resultado con una búsqueda exhaustiva
+de los 2⁹ = 512 subconjuntos, para cada capacidad de 0 a 33 kg.
 
 ---
 
