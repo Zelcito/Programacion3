@@ -276,9 +276,9 @@ curl "http://localhost:8080/api/grafo/resumen"
 curl "http://localhost:8080/api/grafo/bfs?origen=PAR"
 # -> ["PAR","TRO","LYO","MRS","GEN",...,"JER"]
 
-# 5. Probar un algoritmo sin implementar
+# 5. Consultar los costos minimos entre todas las ciudades
 curl "http://localhost:8080/api/grafo/floyd"
-# -> 501 {"estado":"PENDIENTE","detalle":"Todavia no esta implementado: Floyd-Warshall"}
+# -> mapa de 400 pares: PAR->JER = 26.0, ROM->JER = 17.0, PAR->ROM = 9.0
 ```
 
 Al arrancar, `CargaInicial` carga La Ruta del Temple. Si la base todavía tiene
