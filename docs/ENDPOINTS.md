@@ -675,7 +675,100 @@ de los 2⁹ = 512 subconjuntos, para cada capacidad de 0 a 33 kg.
 
 ### GET /api/grafo/rutas
 
-_(completar — incluir cantidad de nodos explorados con y sin poda)_
+Todas las rutas simples (sin repetir ciudad) entre dos ciudades que no pasan de
+un tope de jornadas ni de un tope de etapas. En el dominio: todas las
+alternativas que tiene el mensajero si puede gastar hasta cierta cantidad de
+jornadas y hacer hasta cierta cantidad de etapas.
+
+**Parámetros:** `origen` y `destino` (ids de ciudad), `costoMaximo` (jornadas,
+por defecto 1000) y `saltosMaximos` (etapas, por defecto 10). Una ciudad que no
+existe devuelve 400. Un tope negativo devuelve 400 con
+`"costoMaximo y saltosMaximos no pueden ser negativos"`. Origen igual a destino
+devuelve `[{"vertices":["PAR"],"costoTotal":0.0}]`.
+
+**Ejemplo:** `GET /api/grafo/rutas?origen=PAR&destino=JER&costoMaximo=27&saltosMaximos=10`
+
+**Respuesta** (8 rutas: la de 26 jornadas y siete de 27):
+```json
+[
+  {"vertices":["PAR","TRO","LYO","MRS","ROM","BRI","ATE","ROD","CHI","JER"],"costoTotal":27.0},
+  {"vertices":["PAR","LYO","MRS","ROM","PAL","CRE","ROD","CHI","JER"],"costoTotal":27.0},
+  {"vertices":["PAR","LYO","MRS","ROM","PAL","CRE","CHI","JER"],"costoTotal":27.0},
+  {"vertices":["PAR","LYO","MRS","ROM","BRI","ATE","CRE","ROD","CHI","JER"],"costoTotal":27.0},
+  {"vertices":["PAR","LYO","MRS","ROM","BRI","ATE","CRE","CHI","JER"],"costoTotal":27.0},
+  {"vertices":["PAR","LYO","MRS","ROM","BRI","ATE","ROD","CHI","JER"],"costoTotal":26.0},
+  {"vertices":["PAR","LYO","GEN","VEN","BRI","ATE","ROD","CHI","JER"],"costoTotal":27.0},
+  {"vertices":["PAR","LYO","GEN","ROM","BRI","ATE","ROD","CHI","JER"],"costoTotal":27.0}
+]
+```
+Las rutas salen en el orden en que el DFS las encuentra, que depende del orden de
+los vecinos (el ejemplo usa el de la tabla del README; Neo4j puede devolver otro).
+El conjunto de rutas no cambia.
+
+Con `costoMaximo=30&saltosMaximos=10` son **86 rutas**:
+
+| Jornadas | 26 | 27 | 28 | 29 | 30 |
+|---|---|---|---|---|---|
+| Rutas | 1 | 7 | 16 | 28 | 34 |
+
+| Etapas | 7 | 8 | 9 | 10 |
+|---|---|---|---|---|
+| Rutas | 3 | 15 | 39 | 29 |
+
+Con `costoMaximo=26` queda una sola, la de Dijkstra, y con 25 ninguna: 26 es el
+camino mínimo. Con `saltosMaximos=7` la de Dijkstra queda afuera porque usa 8
+etapas, y quedan tres, de 27, 28 y 29 jornadas.
+
+**Nodos explorados con y sin poda** (París → Jerusalén; cada nodo es una llamada
+recursiva, también las que se cortan por la poda):
+
+| `costoMaximo` | `saltosMaximos` | Rutas | Con poda | Sin poda |
+|---|---|---|---|---|
+| 30 | 10 | 86 | 4.970 | 62.509 |
+| 28 | 10 | 24 | 3.119 | 62.509 |
+| 27 | 10 | 8 | 2.484 | 62.509 |
+| 26 | 10 | 1 | 1.942 | 62.509 |
+| 25 | 10 | 0 | 1.473 | 62.509 |
+| 30 | 8 | 18 | 2.947 | 62.509 |
+| 30 | 7 | 3 | 1.318 | 62.509 |
+
+Sin poda siempre son 62.509, porque recorre todos los caminos simples que salen
+de París y recién al llegar a Jerusalén mira los topes. Con poda, en el caso
+30/10 explora unas 12,6 veces menos nodos, y con 7 etapas unas 47 veces menos.
+Las dos versiones devuelven exactamente las mismas rutas. El endpoint usa
+siempre la versión con poda; la otra (`Backtracking.buscar(..., false)`) está
+para medir, y la usa `BacktrackingTest`.
+
+**Dónde está la poda:** al entrar a cada llamada, si el costo parcial ya pasa
+`costoMaximo` o las etapas pasan `saltosMaximos`, se vuelve sin mirar los
+vecinos (`// PODA`). Es correcto porque los costos son positivos (de 2 a 7
+jornadas): seguir esa ruta solo puede sumar. Con costos negativos, la poda por
+costo podría descartar rutas válidas.
+
+**Dónde está el retroceso:** en `extender`, antes de bajar a una ciudad v se
+marca `visitado[v]` y se agrega v a `camino`; al volver de la llamada se saca de
+`camino` y se desmarca `visitado[v]` (`// RETROCESO`). Así v queda libre para
+otras rutas que lleguen a ella por otro lado. Sin desmarcar sería un DFS común:
+cada ciudad entraría en una sola ruta y se perderían casi todas.
+
+**Complejidad:** exponencial en el peor caso.
+- El árbol de búsqueda tiene un nodo por cada camino simple que sale del
+  origen. En un grafo completo hay V − 1 opciones para la primera etapa, V − 2
+  para la segunda, y así: hasta (V − 1)! caminos, O(V!).
+- Con un tope de s etapas y grado máximo d, el árbol tiene a lo sumo
+  1 + d + d² + … + dˢ nodos: O(dˢ). Acá d = 5 y s = 10, una cota de unos 12
+  millones; en la práctica son 62.509 sin poda.
+- Cada nodo recorre sus vecinos, y guardar una ruta encontrada copia hasta V
+  ciudades.
+- La poda no mejora el peor caso (con topes altos no corta nada), pero en la
+  práctica achica mucho el árbol: ver la tabla.
+
+**Espacio:** O(V) para `visitado[]`, `camino` y la pila de recursión, que nunca
+tiene más de V llamadas. Aparte, la salida: cada ruta encontrada ocupa O(V).
+
+**Estructura usada:** lista de adyacencia + recursión (la pila de llamadas) +
+arreglo `boolean[] visitado` + la lista `camino`, usada como pila (se agrega al
+bajar y se saca al volver).
 
 ---
 
