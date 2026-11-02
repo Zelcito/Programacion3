@@ -3,16 +3,18 @@ package uade.prog3.tpo;
 import org.junit.jupiter.api.Test;
 import uade.prog3.tpo.algorithm.Ordenamiento;
 import uade.prog3.tpo.model.Item;
+import uade.prog3.tpo.seed.CargaInicial;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests de QuickSort y MergeSort. No tocan Neo4j: usan los mismos items de la carga inicial.
+ * Tests de QuickSort y MergeSort con datos de ejemplo y provisiones del dominio, sin Neo4j.
  */
 class OrdenamientoTest {
 
@@ -21,7 +23,7 @@ class OrdenamientoTest {
     private static final Comparator<Item> POR_RATIO = Comparator.comparingDouble(Item::ratioValorPeso);
     private static final Comparator<Item> POR_PESO = Comparator.comparingDouble(Item::getPeso);
 
-    /** Los 5 items de la carga inicial. Ratios: I1=2, I2=10, I3=5, I4=16.7, I5=7.9 */
+    /** Cinco items de ejemplo del scaffold. Ratios: I1=2, I2=10, I3=5, I4=16.7, I5=7.9 */
     private List<Item> itemsDeEjemplo() {
         return List.of(
                 new Item("I1", "Item 1", 5, 10, "A"),
@@ -33,6 +35,25 @@ class OrdenamientoTest {
 
     private List<String> ids(List<Item> items) {
         return items.stream().map(Item::getId).toList();
+    }
+
+    @Test
+    void quickSortOrdenaLasProvisionesDelTemplePorRatio() {
+        List<Item> ordenados = ordenamiento.quickSort(CargaInicial.PROVISIONES, POR_RATIO);
+        // Ratios: 0.5, 0.6, 2/3, 1, 1, 1.25, 1.25, 2, 2. No se fija el orden de los empates.
+        assertEquals(List.of(0.5, 0.6, 2.0 / 3, 1.0, 1.0, 1.25, 1.25, 2.0, 2.0),
+                ordenados.stream().map(Item::ratioValorPeso).toList());
+        assertEquals(new HashSet<>(CargaInicial.PROVISIONES), new HashSet<>(ordenados));
+    }
+
+    @Test
+    void mergeSortOrdenaLasProvisionesDelTemplePorPesoConEstabilidad() {
+        List<Item> ordenados = ordenamiento.mergeSort(CargaInicial.PROVISIONES, POR_PESO);
+        // A igual peso se conserva el orden de la tabla de provisiones.
+        assertEquals(List.of("PAN", "ODR", "SAL", "CAR", "UNG", "QUE", "REL", "ESP", "VIN"),
+                ids(ordenados));
+        assertEquals(List.of(2.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 5.0, 8.0),
+                ordenados.stream().map(Item::getPeso).toList());
     }
 
     @Test

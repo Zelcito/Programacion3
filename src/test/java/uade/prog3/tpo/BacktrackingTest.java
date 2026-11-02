@@ -129,4 +129,22 @@ class BacktrackingTest {
         assertThrows(IllegalArgumentException.class, () -> backtracking.rutasSimples(g, "PAR", "JER", -1, 10));
         assertThrows(IllegalArgumentException.class, () -> backtracking.rutasSimples(g, "PAR", "JER", 30, -1));
     }
+
+    @Test
+    void topesCeroSoloPermitenLaRutaSinEtapas() {
+        Grafo g = rutaDelTemple();
+        // Todas las rutas del dominio cuestan mas de cero y unen ciudades distintas.
+        assertEquals(List.of(), backtracking.rutasSimples(g, "PAR", "JER", 0, 10));
+        assertEquals(List.of(), backtracking.rutasSimples(g, "PAR", "JER", 30, 0));
+        assertEquals(List.of(new Backtracking.Ruta(List.of("PAR"), 0)),
+                backtracking.rutasSimples(g, "PAR", "PAR", 0, 0));
+    }
+
+    @Test
+    void destinoAisladoNoTieneRutasConNiSinPoda() {
+        Grafo g = rutaDelTemple();
+        g.agregarVertice("ISL");
+        assertEquals(List.of(), backtracking.rutasSimples(g, "PAR", "ISL", 30, 10));
+        assertEquals(List.of(), backtracking.buscar(g, "PAR", "ISL", 30, 10, false).rutas());
+    }
 }

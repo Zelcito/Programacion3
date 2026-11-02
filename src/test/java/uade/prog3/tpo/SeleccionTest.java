@@ -130,4 +130,15 @@ class SeleccionTest {
         List<Item> items = List.of(new Item("X", "Media hogaza", 1.5, 1, null));
         assertThrows(IllegalArgumentException.class, () -> seleccion.programacionDinamica(items, 5));
     }
+
+    @Test
+    void pesoNegativoSeRechazaEnAmbasTecnicas() {
+        List<Item> items = List.of(new Item("PAN", "Pan de centeno", -2, 2, null));
+        IllegalArgumentException greedy = assertThrows(IllegalArgumentException.class,
+                () -> seleccion.greedy(items, 15));
+        IllegalArgumentException dinamica = assertThrows(IllegalArgumentException.class,
+                () -> seleccion.programacionDinamica(items, 15));
+        assertEquals("El item PAN tiene peso negativo", greedy.getMessage());
+        assertEquals("El item PAN tiene peso negativo", dinamica.getMessage());
+    }
 }

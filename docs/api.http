@@ -1,33 +1,49 @@
-### Verificar conexión y datos
+### Verificar conexión y datos (20 vertices, 36 aristas, dirigido=false)
 GET http://localhost:8080/api/grafo/resumen
 
-### Recorridos
+### DFS (20 ciudades sin repetir; orden segun los vecinos cargados)
 GET http://localhost:8080/api/grafo/dfs?origen=PAR
+
+### BFS (20 ciudades por niveles; JER esta a 7 etapas)
 GET http://localhost:8080/api/grafo/bfs?origen=PAR
 
 ### Caminos mínimos    (esperado: PAR->JER = 26 por LYO MRS ROM BRI ATE ROD CHI; PAR->ROM = 9)
 GET http://localhost:8080/api/grafo/dijkstra?origen=PAR&destino=JER
+
+### Dijkstra de Paris a Roma (costoTotal=9)
 GET http://localhost:8080/api/grafo/dijkstra?origen=PAR&destino=ROM
-GET http://localhost:8080/api/grafo/ucs?origen=PAR&destino=JER
 
 ### Floyd-Warshall (400 pares; PAR->JER = 26, ROM->JER = 17, PAR->ROM = 9; diagonal 0)
 GET http://localhost:8080/api/grafo/floyd
 
-### Arbol de recubrimiento minimo    (esperado: 19 aristas, costo total 53)
+### Prim (19 aristas, costoTotal=53)
 GET http://localhost:8080/api/grafo/prim?origen=PAR
+
+### Kruskal (19 aristas, costoTotal=53)
 GET http://localhost:8080/api/grafo/kruskal
 
-### Ordenamiento
+### QuickSort por ratio (ascendente; empates sin orden garantizado)
+# Ratios: 0.5, 0.6, 2/3, 1, 1, 1.25, 1.25, 2, 2
 GET http://localhost:8080/api/seleccion/quicksort?criterio=ratio
+
+### MergeSort por peso (ascendente y estable)
+# Pesos: 2, 2, 2, 3, 3, 4, 4, 5, 8; empates segun el orden de entrada
 GET http://localhost:8080/api/seleccion/mergesort?criterio=peso
 
-### Mochila 0/1    (esperado con 15 kg: greedy = 19 jornadas en 13 kg; dinamica = 22 jornadas en 15 kg)
+### Greedy (valorTotal=19, pesoTotal=13)
 GET http://localhost:8080/api/seleccion/greedy?capacidad=15
+
+### Mochila con PD (valorTotal=22, pesoTotal=15)
 GET http://localhost:8080/api/seleccion/dinamica?capacidad=15
 
-### Backtracking    (esperado: 86 rutas; con costoMaximo=26 solo la de Dijkstra; con 25 ninguna)
+### Backtracking (86 rutas de hasta 30 jornadas y 10 etapas)
 GET http://localhost:8080/api/grafo/rutas?origen=PAR&destino=JER&costoMaximo=30&saltosMaximos=10
+
+### Backtracking (una ruta, la de Dijkstra, de costoTotal=26)
 GET http://localhost:8080/api/grafo/rutas?origen=PAR&destino=JER&costoMaximo=26&saltosMaximos=10
 
-### Branch and Bound
+### UCS - PENDIENTE (501, todavia sin implementar)
+GET http://localhost:8080/api/grafo/ucs?origen=PAR&destino=JER
+
+### Branch and Bound - PENDIENTE (501, todavia sin implementar)
 GET http://localhost:8080/api/seleccion/repartir?contenedores=3
