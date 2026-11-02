@@ -1,7 +1,7 @@
 # Documentación de endpoints
 
-> Plantilla. Cada grupo la completa con SUS endpoints, sus ejemplos reales
-> y su análisis de complejidad. Un endpoint sin esta ficha no suma puntos.
+> Fichas de los algoritmos implementados, con ejemplos del dominio y su análisis
+> de complejidad. UCS y Branch & Bound están identificados como pendientes.
 
 ---
 
@@ -180,7 +180,7 @@ valida antes de empezar.
 que puede llegar a tener una entrada por arista.
 
 **Estructura usada:** lista de adyacencia + `PriorityQueue` (heap binario) +
-arreglos `dist[]` y `predecesor[]`. La relajación está en `CaminosMinimos.dijkstra`,
+arreglos `dist[]` y `predecesor[]`. La relajación está en `CaminosMinimos.dijkstraDesde`,
 marcada `// RELAJACION`.
 
 ---
@@ -477,6 +477,9 @@ ya ordenada cae siempre en el peor caso; con el del medio, esa misma lista se
 parte en mitades parejas. El peor caso sigue siendo posible, pero con una
 entrada armada a propósito.
 
+**Espacio:** O(n) por la copia de la entrada, más O(log n) de pila en promedio
+y O(n) en el peor caso. El espacio total es O(n) en ambos casos.
+
 **Estructura usada:** partición de Lomuto in-place sobre una copia de la lista
 (O(n) de espacio) y recursión (O(log n) de pila en promedio, O(n) en el peor caso).
 
@@ -488,6 +491,7 @@ Ordena los items de menor a mayor según un criterio. Es estable: si dos items
 empatan, quedan en el mismo orden en que venían.
 
 **Parámetros:** `criterio` = `valor`, `peso` o `ratio`. Opcional, por defecto `ratio`.
+Cualquier otro criterio devuelve 400.
 
 **Ejemplo:** `GET /api/seleccion/mergesort?criterio=peso`
 
@@ -517,6 +521,10 @@ Las de 2 kg (PAN, ODR, SAL) salen en el mismo orden en que entraron: es estable.
 **Estabilidad:** en la mezcla, ante un empate se toma primero el elemento de la
 mitad izquierda (`compare <= 0`).
 
+**Espacio:** O(n). Durante la mezcla se conservan las dos mitades y se crea la
+lista resultado; los tamaños de las listas retenidas en la recursión forman una
+suma geométrica O(n). La pila agrega O(log n).
+
 **Estructura usada:** listas auxiliares para la mezcla (O(n) de espacio extra)
 y recursión (O(log n) de pila).
 
@@ -537,6 +545,7 @@ depende del orden en que Neo4j devuelva las provisiones. Como MergeSort es
 estable, si también empatan en peso (PAN y SAL) queda el orden de entrada.
 
 **Parámetros:** `capacidad` = kg que entran en la mochila. Negativa devuelve 400.
+Una provisión con peso negativo también devuelve 400, con su id en el mensaje.
 
 **Ejemplo:** `GET /api/seleccion/greedy?capacidad=15`
 
@@ -580,8 +589,7 @@ divisibles (mochila fraccional) el mismo criterio sí sería óptimo.
 **Complejidad:** O(n log n).
 - Ordenar con el MergeSort del hito 2: O(n log n).
 - Una pasada por la lista ordenada, con O(1) por provisión: O(n).
-- Total: O(n log n) + O(n) = O(n log n); domina el ordenamiento. Con n = 9 son
-  unas 30 comparaciones.
+- Total: O(n log n) + O(n) = O(n log n); domina el ordenamiento.
 
 **Espacio:** O(n) por la lista ordenada (MergeSort devuelve una nueva) y la lista
 de elegidos.
@@ -599,6 +607,7 @@ devuelve qué provisiones lleva, no solo cuántas jornadas suman.
 **Parámetros:** `capacidad` = kg (entero, porque indexa las columnas de la tabla).
 Negativa devuelve 400. Si alguna provisión tuviera un peso no entero, también 400
 (todas las del dominio pesan kg enteros).
+Un peso negativo también devuelve 400, con el id de la provisión en el mensaje.
 
 **Ejemplo:** `GET /api/seleccion/dinamica?capacidad=15`
 
@@ -751,17 +760,23 @@ marca `visitado[v]` y se agrega v a `camino`; al volver de la llamada se saca de
 otras rutas que lleguen a ella por otro lado. Sin desmarcar sería un DFS común:
 cada ciudad entraría en una sola ruta y se perderían casi todas.
 
-**Complejidad:** exponencial en el peor caso.
-- El árbol de búsqueda tiene un nodo por cada camino simple que sale del
-  origen. En un grafo completo hay V − 1 opciones para la primera etapa, V − 2
-  para la segunda, y así: hasta (V − 1)! caminos, O(V!).
-- Con un tope de s etapas y grado máximo d, el árbol tiene a lo sumo
-  1 + d + d² + … + dˢ nodos: O(dˢ). Acá d = 5 y s = 10, una cota de unos 12
-  millones; en la práctica son 62.509 sin poda.
-- Cada nodo recorre sus vecinos, y guardar una ruta encontrada copia hasta V
-  ciudades.
-- La poda no mejora el peor caso (con topes altos no corta nada), pero en la
-  práctica achica mucho el árbol: ver la tabla.
+**Complejidad:** O(V!) en el peor caso para grafos simples, de crecimiento
+factorial. Si N es la cantidad de llamadas, d el grado máximo y R la cantidad
+de rutas devueltas, una cota que incluye el trabajo por llamada es
+O(V + d·N + V·R): inicializar visitados, examinar vecinos y copiar las rutas.
+- Sin repetir ciudades, en profundidad l hay a lo sumo
+  (V − 1)! / (V − 1 − l)! prefijos. Sumando las profundidades de 0 a V − 1,
+  N es O((V − 1)!). Como d ≤ V − 1 y R ≤ N, el tiempo es O(V!).
+- **Con poda:** si s es `saltosMaximos`, las llamadas pueden llegar hasta
+  profundidad h = min(s + 1, V − 1). Se cuenta también la llamada que excede
+  s y se corta al entrar. Por grado, N ≤ 1 + d + d² + … + dʰ; esta es una
+  cota de llamadas, no del tiempo total. La poda por costo puede reducirla más.
+- **Sin poda:** s no limita la exploración; solo filtra las soluciones al
+  llegar al destino. La profundidad puede alcanzar V − 1, así que no corresponde
+  usar una cota basada en s. Para PAR→JER son 62.509 llamadas, con cualquiera
+  de los topes de la tabla; con poda y topes 30/10 son 4.970.
+- Ambas versiones terminan la rama al llegar al destino. Con topes altos la
+  poda no corta ramas y conserva el mismo peor caso factorial.
 
 **Espacio:** O(V) para `visitado[]`, `camino` y la pila de recursión, que nunca
 tiene más de V llamadas. Aparte, la salida: cada ruta encontrada ocupa O(V).
@@ -775,3 +790,15 @@ bajar y se saca al volver).
 ### GET /api/seleccion/repartir
 
 _(completar — incluir cuál es la cota y por qué es optimista)_
+
+**Estado:** pendiente de implementación (hito 11). Con `contenedores=3`, el
+stub actual devuelve 501; todavía no hay resultados ni complejidades de una
+implementación para documentar.
+
+---
+
+### GET /api/grafo/ucs
+
+**Estado:** pendiente de implementación (opcional). La consulta
+`GET /api/grafo/ucs?origen=PAR&destino=JER` devuelve 501 mediante el manejador
+de errores. No se presenta como un algoritmo terminado.
