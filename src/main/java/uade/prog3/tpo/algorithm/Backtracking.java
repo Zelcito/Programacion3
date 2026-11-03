@@ -60,6 +60,10 @@ public class Backtracking {
                            double costoMaximo, int saltosMaximos, boolean podar) {
         int origen = grafo.indiceDe(origenId);
         int destino = grafo.indiceDe(destinoId);
+        if (Double.isNaN(costoMaximo)) {
+            // NaN no es menor que 0, y "costo > NaN" da siempre false: sin esto no habria tope
+            throw new IllegalArgumentException("costoMaximo tiene que ser un numero");
+        }
         if (costoMaximo < 0 || saltosMaximos < 0) {
             throw new IllegalArgumentException("costoMaximo y saltosMaximos no pueden ser negativos");
         }

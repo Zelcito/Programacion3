@@ -143,6 +143,12 @@ class RamificacionYPodaTest {
     void rechazaCantidadInvalidaYPesosNegativosONoFinitos() {
         assertThrows(IllegalArgumentException.class, () -> ramificacionYPoda.repartir(List.of(), 0));
         assertThrows(IllegalArgumentException.class, () -> ramificacionYPoda.repartir(List.of(), -1));
+        // tope: antes 10 millones de mulas agotaba la memoria
+        assertThrows(IllegalArgumentException.class, () -> ramificacionYPoda.repartir(List.of(),
+                RamificacionYPoda.MAXIMO_CONTENEDORES + 1));
+        assertThrows(IllegalArgumentException.class, () -> ramificacionYPoda.repartir(List.of(), 10_000_000));
+        assertEquals(8.0, ramificacionYPoda.repartir(CargaInicial.PROVISIONES,
+                RamificacionYPoda.MAXIMO_CONTENEDORES).cargaMaxima()); // el tope en si es valido
         for (double peso : new double[]{-1, Double.NaN, Double.POSITIVE_INFINITY}) {
             Item invalido = new Item("X", "Invalido", peso, 0, null);
             assertThrows(IllegalArgumentException.class, () -> ramificacionYPoda.repartir(List.of(invalido), 2));
