@@ -229,7 +229,7 @@ una sola matriz alcanza para actualizar en el lugar. Al terminar, una diagonal
 negativa revela un recorrido cerrado que reduce su costo cada vez que se repite:
 no existe un mínimo finito y se rechaza el resultado completo.
 
-**Complejidad:** O(V³) en tiempo para el grafo simple del dominio.
+**Complejidad:** O(V³) en tiempo.
 - Crear la matriz cuesta O(V² + E).
 - Los tres bucles recorren V³ ternas y cada paso hace trabajo constante.
 - Revisar la diagonal cuesta O(V); armar el mapa, O(V²).
@@ -771,6 +771,8 @@ O(V + d·N + V·R): inicializar visitados, examinar vecinos y copiar las rutas.
   profundidad h = min(s + 1, V − 1). Se cuenta también la llamada que excede
   s y se corta al entrar. Por grado, N ≤ 1 + d + d² + … + dʰ; esta es una
   cota de llamadas, no del tiempo total. La poda por costo puede reducirla más.
+  Acá d = 5 (ROM, BRI y ROD tienen 5 rutas) y con s = 10, h = 11: la cota es
+  (5¹² − 1) / 4 ≈ 61 millones de llamadas, y en la práctica son 4.970.
 - **Sin poda:** s no limita la exploración; solo filtra las soluciones al
   llegar al destino. La profundidad puede alcanzar V − 1, así que no corresponde
   usar una cota basada en s. Para PAR→JER son 62.509 llamadas, con cualquiera

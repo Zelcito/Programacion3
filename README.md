@@ -321,6 +321,11 @@ Los ids son los de la tabla de ciudades. Todos los endpoints de grafos cargan
 el grafo como **no dirigido**: Neo4j guarda cada ruta una vez y el grafo en
 memoria agrega la inversa.
 
+Cada endpoint tiene su ficha (parámetros, ejemplo, respuesta y complejidad
+justificada) en [`docs/ENDPOINTS.md`](docs/ENDPOINTS.md). La tabla con la
+complejidad temporal y espacial, la recurrencia y la estructura de datos de
+todos los algoritmos está en [`docs/COMPLEJIDADES.md`](docs/COMPLEJIDADES.md).
+
 ## El grafo de ejemplo del scaffold
 
 Era el grafo que traía la carga inicial antes del hito 4. Ya no se carga en
