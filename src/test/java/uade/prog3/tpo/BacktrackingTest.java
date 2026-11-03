@@ -131,6 +131,14 @@ class BacktrackingTest {
     }
 
     @Test
+    void costoMaximoNaNSeRechaza() {
+        // sin validarlo, NaN dejaba pasar todas las rutas como si no hubiera tope
+        Grafo g = rutaDelTemple();
+        assertThrows(IllegalArgumentException.class,
+                () -> backtracking.rutasSimples(g, "PAR", "JER", Double.NaN, 10));
+    }
+
+    @Test
     void topesCeroSoloPermitenLaRutaSinEtapas() {
         Grafo g = rutaDelTemple();
         // Todas las rutas del dominio cuestan mas de cero y unen ciudades distintas.

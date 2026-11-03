@@ -25,6 +25,12 @@ public class RamificacionYPoda {
     public record Asignacion(Map<String, List<Item>> porContenedor, double cargaMaxima,
                              long nodosExplorados, long nodosPodados) { }
 
+    /**
+     * Tope de mulas. Con 9 provisiones, desde la mula 10 en adelante quedan vacias;
+     * sin tope, un valor absurdo (10 millones) agota la memoria con los arreglos y la respuesta.
+     */
+    public static final int MAXIMO_CONTENEDORES = 100;
+
     private final Ordenamiento ordenamiento = new Ordenamiento();
 
     /**
@@ -47,6 +53,9 @@ public class RamificacionYPoda {
     public Asignacion repartir(List<Item> items, int cantidadContenedores) {
         if (cantidadContenedores < 1) {
             throw new IllegalArgumentException("La cantidad de contenedores debe ser al menos 1");
+        }
+        if (cantidadContenedores > MAXIMO_CONTENEDORES) {
+            throw new IllegalArgumentException("La cantidad de contenedores no puede superar " + MAXIMO_CONTENEDORES);
         }
         for (Item item : items) {
             if (!Double.isFinite(item.getPeso()) || item.getPeso() < 0) {

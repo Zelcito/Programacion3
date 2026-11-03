@@ -11,7 +11,7 @@ Jerusalén.
 |---|---|
 | Juan Zeljkovich | [@Zelcito](https://github.com/Zelcito) |
 | Marco Sobrido Alvano | [@M4RQUIT0S](https://github.com/M4RQUIT0S) |
-| Santiago Ohoka | [@sohoka1101](https://github.com/sohoka1101) |
+| Santiago Ohoka Jorge | [@sohoka1101](https://github.com/sohoka1101) |
 
 ---
 
@@ -284,8 +284,7 @@ curl "http://localhost:8080/api/grafo/floyd"
 Al arrancar, `CargaInicial` carga La Ruta del Temple. Si la base todavía tiene
 el grafo de ejemplo del scaffold (nodos A..H), lo borra y carga el dominio.
 
-Si el paso 3 responde, la infraestructura está bien y todo lo que queda es
-escribir algoritmos.
+Si el paso 3 responde, la conexión con Neo4j está bien y el dominio está cargado.
 
 ## Estructura
 
@@ -293,9 +292,9 @@ escribir algoritmos.
 model/          Nodo, Conexion (arista con costo), Item
 repository/     acceso a Neo4j — repositorios BLOQUEANTES, sin Mono/Flux
 service/        Grafo (lista de adyacencia en memoria) y GrafoService (carga)
-algorithm/      >>> ACÁ VA TODO EL TRABAJO <<<  ahora son stubs con TODO
-controller/     endpoints ya cableados — NO poner lógica algorítmica acá
-seed/           datos de ejemplo
+algorithm/      los algoritmos implementados (toda la lógica va acá)
+controller/     endpoints: cargan el grafo y delegan, sin lógica algorítmica
+seed/           CargaInicial: ciudades, rutas y provisiones de La Ruta del Temple
 ```
 
 ## Endpoints
@@ -354,10 +353,14 @@ la relajación de aristas está mal.
 
 ## Antes de entregar
 
-- [ ] `./mvnw test` pasa
-- [ ] no hay ninguna contraseña en el código ni en `application.properties`
-- [ ] cada algoritmo implementado tiene al menos un test
-- [ ] `docs/ENDPOINTS.md` documenta entrada y salida de cada endpoint
+- [x] `./mvnw test` pasa
+- [x] no hay ninguna contraseña en el código ni en `application.properties`, ni en el historial
+- [x] cada algoritmo implementado tiene al menos un test
+- [x] `docs/ENDPOINTS.md` documenta entrada y salida de cada endpoint
+- [x] `docs/COMPLEJIDADES.md` resume la complejidad de todos los algoritmos
 - [x] el README explica **qué dominio eligieron y qué representa el costo**
+- [x] el README lista a los integrantes con nombre completo y usuario de GitHub
+- [x] los controllers no tienen lógica algorítmica y los algoritmos no consultan la base
+- [x] los datos inválidos devuelven 400 o 422 con un mensaje, nunca un stack trace
 
 Ver `GUIA-TPO.md` para el paso a paso.

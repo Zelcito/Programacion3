@@ -692,8 +692,10 @@ jornadas y hacer hasta cierta cantidad de etapas.
 **Parámetros:** `origen` y `destino` (ids de ciudad), `costoMaximo` (jornadas,
 por defecto 1000) y `saltosMaximos` (etapas, por defecto 10). Una ciudad que no
 existe devuelve 400. Un tope negativo devuelve 400 con
-`"costoMaximo y saltosMaximos no pueden ser negativos"`. Origen igual a destino
-devuelve `[{"vertices":["PAR"],"costoTotal":0.0}]`.
+`"costoMaximo y saltosMaximos no pueden ser negativos"`. `costoMaximo=NaN`
+también devuelve 400: NaN no es menor que 0, y como `costo > NaN` da siempre
+falso, sin esa validación el endpoint devolvería todas las rutas como si no
+hubiera tope. Origen igual a destino devuelve `[{"vertices":["PAR"],"costoTotal":0.0}]`.
 
 **Ejemplo:** `GET /api/grafo/rutas?origen=PAR&destino=JER&costoMaximo=27&saltosMaximos=10`
 
@@ -795,7 +797,9 @@ Reparte las provisiones del mensajero entre las mulas de carga. Devuelve una
 distribución que minimiza el peso de la mula más cargada.
 
 **Parámetros.** `contenedores` es la cantidad de mulas y debe ser un entero
-mayor o igual que 1. Una cantidad inválida o una provisión de peso negativo
+entre 1 y 100. El tope existe porque, con 9 provisiones, desde la mula 10 en
+adelante quedan vacías, y un valor absurdo (10 millones) agotaba la memoria
+armando los arreglos y la respuesta. Una cantidad inválida o una provisión de peso negativo
 o no finito devuelve 400. Si la carga máxima calculada excede el rango del
 tipo de retorno, también devuelve 400. Se incluyen las mulas vacías. Si no
 hay provisiones, todas las mulas quedan vacías y la carga máxima es 0.
