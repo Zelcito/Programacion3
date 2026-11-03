@@ -45,5 +45,5 @@ GET http://localhost:8080/api/grafo/rutas?origen=PAR&destino=JER&costoMaximo=26&
 ### UCS - PENDIENTE (501, todavia sin implementar)
 GET http://localhost:8080/api/grafo/ucs?origen=PAR&destino=JER
 
-### Branch and Bound - PENDIENTE (501, todavia sin implementar)
+### Branch and Bound (3 mulas de 11 kg, 187 nodos explorados y 108 podados)
 GET http://localhost:8080/api/seleccion/repartir?contenedores=3
