@@ -34,7 +34,7 @@ Los logaritmos son en base 2: log V ≈ 4,32, log E ≈ 5,17, log n ≈ 3,17.
 | [Greedy (mochila)](ENDPOINTS.md#get-apiselecciongreedy) | Greedy | — | O(n log n) | O(n) | MergeSort propio + `ArrayList` | ≈ 29 para ordenar + 9 para elegir | Domina el ordenamiento por ratio |
 | [Mochila 0/1](ENDPOINTS.md#get-apiselecciondinamica) | Programación dinámica | dp[i][j] = max(dp[i−1][j], dp[i−1][j − pᵢ] + vᵢ) | O(n · W), pseudopolinomial | O(n · W) | Matriz `double[n+1][W+1]` | 10 × 16 = 160 celdas | Cada celda se llena en O(1) mirando la fila anterior |
 | [Backtracking](ENDPOINTS.md#get-apigraforutas) | Backtracking con poda | T(m) = m · T(m − 1) + O(1) en un grafo completo (m = ciudades libres) | O(V!) peor caso | O(V) + la salida | Lista de adyacencia + recursión + `boolean[]` visitados + `camino` como pila | 4.970 nodos con poda vs 62.509 sin poda (medido, PAR→JER, 30/10) | Enumera caminos simples; la poda no cambia el peor caso pero achica el árbol |
-| [Branch & Bound](ENDPOINTS.md#get-apiseleccionrepartir) | Ramificación y poda | — | _pendiente (hito 11)_ | _pendiente_ | _pendiente_ | _pendiente_ | _pendiente_ |
+| [Branch & Bound](ENDPOINTS.md#get-apiseleccionrepartir) | Ramificación y poda | N(m) ≤ 1 + k·N(m − 1), con N(0) = 1 | O(kⁿ) llamadas, O(k + n·kⁿ) tiempo con copias (k ≥ 2, n ≥ 1) | O(n + k) | Arreglos de cargas y decisiones + recursión + MergeSort propio | 3 mulas de 11 kg, 187 nodos explorados, 108 podados y 29.524 sin poda (medido) | Hasta k ramas por provisión, con poda por cota inferior y copia de O(n) al mejorar |
 
 UCS es opcional y no está implementado, por eso no figura.
 

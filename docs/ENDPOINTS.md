@@ -1,7 +1,7 @@
 # Documentación de endpoints
 
 > Fichas de los algoritmos implementados, con ejemplos del dominio y su análisis
-> de complejidad. UCS y Branch & Bound están identificados como pendientes.
+> de complejidad. UCS está identificado como pendiente.
 
 ---
 
@@ -791,11 +791,111 @@ bajar y se saca al volver).
 
 ### GET /api/seleccion/repartir
 
-_(completar — incluir cuál es la cota y por qué es optimista)_
+Reparte las provisiones del mensajero entre las mulas de carga. Devuelve una
+distribución que minimiza el peso de la mula más cargada.
 
-**Estado:** pendiente de implementación (hito 11). Con `contenedores=3`, el
-stub actual devuelve 501; todavía no hay resultados ni complejidades de una
-implementación para documentar.
+**Parámetros.** `contenedores` es la cantidad de mulas y debe ser un entero
+mayor o igual que 1. Una cantidad inválida o una provisión de peso negativo
+o no finito devuelve 400. Si la carga máxima calculada excede el rango del
+tipo de retorno, también devuelve 400. Se incluyen las mulas vacías. Si no
+hay provisiones, todas las mulas quedan vacías y la carga máxima es 0.
+
+**Ejemplo.** `GET /api/seleccion/repartir?contenedores=3`
+
+**Respuesta.** JSON generado por `RamificacionYPodaTest` con las provisiones
+en el orden de `CargaInicial`.
+
+```json
+{
+  "porContenedor": {
+    "Mula 1": [
+      {"id":"VIN","nombre":"Vino aguado","peso":8.0,"valor":10.0,"nodoId":null},
+      {"id":"CAR","nombre":"Carne salada","peso":3.0,"valor":6.0,"nodoId":null}
+    ],
+    "Mula 2": [
+      {"id":"ESP","nombre":"Espada","peso":5.0,"valor":3.0,"nodoId":null},
+      {"id":"QUE","nombre":"Queso curado","peso":4.0,"valor":5.0,"nodoId":null},
+      {"id":"PAN","nombre":"Pan de centeno","peso":2.0,"valor":2.0,"nodoId":null}
+    ],
+    "Mula 3": [
+      {"id":"REL","nombre":"Reliquia santa","peso":4.0,"valor":2.0,"nodoId":null},
+      {"id":"UNG","nombre":"Ungüentos","peso":3.0,"valor":2.0,"nodoId":null},
+      {"id":"ODR","nombre":"Odre de agua","peso":2.0,"valor":4.0,"nodoId":null},
+      {"id":"SAL","nombre":"Salterio","peso":2.0,"valor":2.0,"nodoId":null}
+    ]
+  },
+  "cargaMaxima": 11.0,
+  "nodosExplorados": 187,
+  "nodosPodados": 108
+}
+```
+
+Las tres mulas cargan 11 kg. MergeSort conserva el orden de entrada entre
+provisiones del mismo peso, así que el orden de lectura de Neo4j puede cambiar
+qué provisiones concretas integran un reparto óptimo.
+
+**Ramificación.** Se ordena por peso descendente con MergeSort propio. Cada
+nivel asigna la siguiente provisión a una de las k mulas. Al volver de la
+llamada se restaura la carga anterior y se prueba otra mula. Cada hoja
+representa un reparto completo. La primera hoja fija la mejor carga conocida
+y cada mejora guarda una copia de las decisiones.
+
+**Cota inferior.** Si M es la máxima carga parcial y P es el peso total,
+`max(M, P / k)` es una cota optimista. Con pesos no negativos, la mula que
+ya tiene M kg conservará al menos ese peso. En cualquier reparto completo,
+las cargas suman P, así que alguna mula debe cargar al menos P / k. Las dos
+condiciones se cumplen a la vez. Para tres mulas, la cota inicial es 33 / 3
+= 11 kg y el reparto del ejemplo la alcanza.
+
+**Poda.** Si ya hay un reparto completo y la cota es mayor o igual a su
+carga máxima, la rama no puede mejorar la mejor solución. Una cota que
+sobreestima el mínimo alcanzable podría eliminar una solución mejor. Se usan
+decimales exactos para las cargas y se compara `P >= k * mejorCarga` para
+aplicar la parte del promedio sin redondear una división.
+
+**Nodos explorados y podados.** Una llamada recursiva cuenta como un nodo
+explorado, incluida la raíz. Una llamada que retorna por la cota también
+cuenta como podada, aun si está en el último nivel. Sus descendientes no se
+visitan. El test exhaustivo cuenta una unidad por llamada con el mismo
+criterio y explora el árbol completo.
+
+| Mulas | Carga óptima (kg) | Explorados con poda | Podados | Explorados sin poda |
+|---:|---:|---:|---:|---:|
+| 2 | 17 | 317 | 148 | 1.023 |
+| 3 | 11 | 187 | 108 | 29.524 |
+| 4 | 9 | 3.693 | 2.751 | 349.525 |
+
+**Complejidad.** Sea n la cantidad de provisiones, k la cantidad de mulas,
+N las llamadas realizadas y A las mejoras guardadas.
+
+- Validar y ordenar cuesta O(n + n log n). Cada llamada realiza trabajo
+  constante en el modelo de pesos de tamaño acotado y cada rama se contabiliza
+  en N. Copiar las decisiones cuesta O(n) por mejora.
+- Construir la respuesta cuesta O(n + k). El total es
+  O(n log(n + 1) + k + N + n·A).
+- Con k ≥ 2, el árbol completo tiene 1 + k + … + kⁿ nodos y kⁿ hojas.
+  La exploración cuesta O(kⁿ), y al incluir las copias se obtiene una cota
+  general de O(k + n·kⁿ) para n ≥ 1. La poda reduce N en los casos medidos.
+  Para k = 1 se recorren n + 1 llamadas y domina el ordenamiento.
+
+**Espacio.** O(n + k) para la copia ordenada, los pesos, las cargas, las
+decisiones, la mejor asignación y la respuesta. La pila tiene hasta n + 1
+llamadas y se conserva un solo reparto completo.
+
+**Estructura usada.** Arreglos de cargas y decisiones, recursión, MergeSort
+propio y un `LinkedHashMap` con una lista por mula.
+
+**Diferencia con Backtracking.** En el endpoint de rutas, la poda descarta
+ramas que no pueden respetar los topes y devuelve todas las rutas válidas.
+En el reparto, Branch & Bound descarta ramas que no pueden mejorar el mejor
+reparto conocido, incluso si contienen otros repartos válidos.
+
+**Reproducir.** En PowerShell, desde la raíz del proyecto, correr el test que
+imprime el JSON y las mediciones de ambas búsquedas.
+
+```powershell
+.\mvnw.cmd test -Dtest=RamificacionYPodaTest
+```
 
 ---
 
